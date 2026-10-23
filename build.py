@@ -26,7 +26,7 @@ import store
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE = os.path.join(ROOT, "template.html")
-DIST = os.path.join(ROOT, "dist")
+PUBLISH = ROOT          # 直接输出到仓库根目录，Pages 从根目录发布
 
 
 def load_source():
@@ -72,7 +72,7 @@ def build_html(amap_key, data_file="data.json"):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", default=DIST)
+    ap.add_argument("--out", default=PUBLISH, help="输出目录，默认仓库根目录")
     ap.add_argument("--amap-key", default=os.environ.get("AMAP_JS_KEY", "2f282f369e388ef01bae260cbc35edce"))
     ap.add_argument("--check", action="store_true", help="只检查源数据，不写文件")
     ap.add_argument("--no-split", action="store_true", help="不生成按城市分包")
