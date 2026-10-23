@@ -12,6 +12,9 @@ venv/
 .idea/
 .vscode/
 
+# 推送用的 token，绝不能入库
+.gh_token
+
 # ----------------------------------------
 # 根目录的 index.html / data.json / data.json.gz
 # 是 build.py 生成的发布快照（GitHub Pages 从根目录发布），要入库。
