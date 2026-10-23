@@ -99,24 +99,41 @@ def main() -> None:
     head = remote_head()
     print(f"本地文件 {len(files)} 个，远端 HEAD {head[:8] if head else '（空仓库）'}")
 
+    # 远端已有树：内容相同的文件直接复用旧 blob，不用重传
+    remote_blobs: dict[str, str] = {}
+    if head:
+        tree_sha = call("GET", f"/repos/{OWNER}/{REPO}/git/commits/{head}")["tree"]["sha"]
+        old = call("GET", f"/repos/{OWNER}/{REPO}/git/trees/{tree_sha}?recursive=1")
+        remote_blobs = {e["path"]: e["sha"] for e in old.get("tree", []) if e["type"] == "blob"}
+
     if args.dry_run:
         for p in files:
             print("  ", p)
         return
 
-    # 1) 每个文件建 blob
-    entries, total = [], 0
+    # 本地按内容算 git blob sha，和远端比对；只传变了的
+    def blob_sha(data: bytes) -> str:
+        import hashlib
+        return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+
+    # 1) 每个文件建 blob（内容没变就复用远端 sha）
+    entries, total, reused = [], 0, 0
     for i, p in enumerate(files, 1):
         with open(p, "rb") as f:
             content = f.read()
         total += len(content)
-        sha = call("POST", f"/repos/{OWNER}/{REPO}/git/blobs",
-                   {"content": base64.b64encode(content).decode(), "encoding": "base64"})["sha"]
+        local = blob_sha(content)
+        if remote_blobs.get(p) == local:
+            sha = local
+            reused += 1
+        else:
+            sha = call("POST", f"/repos/{OWNER}/{REPO}/git/blobs",
+                       {"content": base64.b64encode(content).decode(), "encoding": "base64"})["sha"]
         entries.append({"path": p, "mode": "100755" if os.access(p, os.X_OK) else "100644",
                         "type": "blob", "sha": sha})
         if i % 25 == 0 or i == len(files):
-            print(f"  blob {i}/{len(files)}")
-    print(f"上传内容 {total / 1024 / 1024:.2f} MB")
+            print(f"  blob {i}/{len(files)}（复用 {reused}）")
+    print(f"内容合计 {total / 1024 / 1024:.2f} MB，复用远端 {reused} 个，实传 {len(files) - reused} 个")
 
     # 2) 一次 tree 覆盖全仓库（base_tree 让未列出的旧文件保留；这里要删已移除的文件，所以不带 base_tree）
     tree_body = {"tree": entries}
