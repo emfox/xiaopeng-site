@@ -9,6 +9,11 @@
 html,body{margin:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;color:#111}
 #map{position:fixed;inset:0;background:#eef1f5}
 
+/* 缩得太远、站太多时的提示 */
+#zoomTip{display:none;position:fixed;left:50%;transform:translateX(-50%);bottom:84px;z-index:29;
+  background:rgba(17,24,39,.86);color:#fff;font-size:12px;padding:7px 14px;border-radius:999px;
+  backdrop-filter:blur(6px);pointer-events:none;white-space:nowrap}
+
 /* ---------- 顶部三层胶囊 ---------- */
 #tabs{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:30;display:flex;background:#fff;
   border-radius:999px;padding:4px;box-shadow:0 6px 24px rgba(0,0,0,.14)}
@@ -89,6 +94,7 @@ select:focus,input[type=text]:focus{border-color:#111}
 </head>
 <body>
 <div id="map"></div>
+<div id="zoomTip"></div>
 
 <div id="tabs">
   <button data-lv="near" class="on">① 附近</button>
@@ -247,8 +253,36 @@ const pins = new Map();
 
 function initMap() {
   const c = cityOf(S.city);
-  map = new AMap.Map('map', { zoom: c.zoom, center: c.center, viewMode: '2D', showLabel: true });
+  map = new AMap.Map('map', {    zoom: c.zoom, center: c.center, viewMode: '2D', showLabel: true,
+    // 关掉地形/卫星等用不到的图层，少发一堆瓦片请求
+    layers: [new AMap.TileLayer()]
+  });
   infoWin = new AMap.InfoWindow({ offset: new AMap.Pixel(0, -28), isCustom: false });
+
+  // 地图停下来再重算图钉，拖动/缩放过程中不重算
+  map.on('moveend', scheduleRender);
+  map.on('zoomend', scheduleRender);
+
+  window.map = map;        // 方便调试 / 外部脚本控制
+  window.S = S;
+
+  // 底图瓦片加载失败时给出可操作的提示（常见原因：网络拦截 webrd0x.is.autonavi.com）
+  let tileOk = false;
+  map.on('complete', () => { tileOk = true; });
+  setTimeout(() => {
+    if (tileOk) return;
+    const imgs = document.querySelectorAll('.amap-layer img, .amap-tiles img');
+    let bad = 0;
+    imgs.forEach(i => { if (!i.complete || i.naturalWidth === 0) bad++; });
+    if (imgs.length && bad === imgs.length) {
+      const tip = document.getElementById('zoomTip');
+      if (tip && tip.style.display !== 'block') {
+        tip.style.display = 'block';
+        tip.textContent = '底图没加载出来：可能是网络拦截了高德瓦片域名，换个网络试试';
+      }
+    }
+  }, 6000);
+
   locateMe();
 }
 
@@ -452,11 +486,62 @@ function computeList() {
 }
 
 /* ================= 渲染 ================= */
+/* 性能关键：全国 3357 个站不能一次性建成 DOM Marker（会卡 10 秒以上、手机上直接假死）。
+   策略：只渲染「当前视野内」的站，地图移动/缩放结束后重算。
+   视野内站数上限 MAX_PINS，超了说明缩得太小、图钉会糊成一团，直接不画，
+   改为提示用户放大——这也符合直觉：看全国时本来也没法看清单个站。 */
+const MAX_PINS = 600;
+let pinTimer = null;
+
+function inViewBounds(p, b) {
+  return p.lng >= b.sw.lng && p.lng <= b.ne.lng && p.lat >= b.sw.lat && p.lat <= b.ne.lat;
+}
+
+function currentBounds() {
+  const b = map.getBounds();
+  if (!b) return null;
+  const sw = b.getSouthWest(), ne = b.getNorthEast();
+  return { sw: { lng: sw.lng, lat: sw.lat }, ne: { lng: ne.lng, lat: ne.lat } };
+}
+
 function renderPins(list) {
-  pins.forEach(m => m.setMap(null));
-  pins.clear();
   const keep = new Set(list.map(p => p.id));
-  ALL.forEach(p => {
+  const box = currentBounds();
+
+  // 要画的站 = 筛选结果（必须全画，否则列表里点了也看不到）+ 视野内的其他站（作背景参考）
+  // 背景站预算随缩放级别变化：缩得越远，图钉越糊成一团，少画反而更清楚。
+  const picked = list.length ? list : [];
+  const pickedIds = new Set(picked.map(p => p.id));
+  const z = map.getZoom();
+  const bgBudget = z <= 7 ? 0 : z <= 9 ? 80 : z <= 11 ? 200 : 400;
+
+  let visible = picked.slice();
+  if (box && bgBudget > 0) {
+    const room = Math.max(0, Math.min(bgBudget, MAX_PINS - visible.length));
+    const bg = ALL.filter(p => !pickedIds.has(p.id) && inViewBounds(p, box));
+    visible = visible.concat(bg.slice(0, room));
+  }
+  // 筛选结果自身超过上限：只画前 MAX_PINS 个（仍保证列表前几项看得见）
+  const tooMany = picked.length > MAX_PINS;
+  if (tooMany) visible = picked.slice(0, MAX_PINS);
+
+  const visibleIds = new Set(visible.map(p => p.id));
+
+  // 先摘掉视野外 / 超量的旧图钉
+  pins.forEach((m, id) => {
+    if (!visibleIds.has(id)) { m.setMap(null); pins.delete(id); }
+  });
+
+  // 再补上缺的
+  let added = 0;
+  visible.forEach(p => {
+    if (pins.has(p.id)) {
+      // 已存在：只更新选中态
+      const isIn = keep.has(p.id);
+      const el = pins.get(p.id).getContent();
+      if (el) el.className = 'pin ' + (p.type === 'free' ? 'free' : 'third') + (isIn ? '' : ' dim');
+      return;
+    }
     const isIn = keep.has(p.id);
     const cls = (p.type === 'free' ? 'free' : 'third') + (isIn ? '' : ' dim');
     const m = new AMap.Marker({
@@ -467,7 +552,25 @@ function renderPins(list) {
     m.on('click', () => { if (isIn) select(p.id); });
     m.setMap(map);
     pins.set(p.id, m);
+    added++;
   });
+
+  // 筛选结果超过渲染上限时给个提示，而不是默默少画
+  const tip = document.getElementById('zoomTip');
+  if (tip) {
+    if (tooMany) {
+      tip.style.display = 'block';
+      tip.textContent = `符合条件的 ${picked.length} 个站只画出前 ${MAX_PINS} 个，缩小范围或放大可看全`;
+    } else {
+      tip.style.display = 'none';
+    }
+  }
+}
+
+/* 地图停下后再重建，避免拖动过程中疯狂重算 */
+function scheduleRender() {
+  if (pinTimer) clearTimeout(pinTimer);
+  pinTimer = setTimeout(() => { pinTimer = null; renderPins(S.list); }, 220);
 }
 
 function renderList(list) {
