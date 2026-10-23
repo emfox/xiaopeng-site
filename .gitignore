@@ -1,9 +1,6 @@
 # 抓取中间缓存（重跑 fetch_xpeng.py 会重新生成，不必入库）
 data/detail_cache/
 
-# 构建产物（由 build.py 从 data/ 生成）
-dist/
-
 # Python
 __pycache__/
 *.py[cod]
@@ -14,3 +11,12 @@ venv/
 .DS_Store
 .idea/
 .vscode/
+
+# 推送用的 token，绝不能入库
+.gh_token
+
+# ----------------------------------------
+# 根目录的 index.html / data.json / data.json.gz
+# 是 build.py 生成的发布快照（GitHub Pages 从根目录发布），要入库。
+# data/ 才是唯一的源数据，这三个文件不要手工改。
+# ----------------------------------------
