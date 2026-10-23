@@ -11,7 +11,7 @@
 | 数据源 | 小鹏官网「免费·专享」页面 `static.xiaopeng.com/apps/charge-web/pc-free-stations.html` |
 | 接口 | `chargegateway.xiaopeng.com` 的 `queryMapCityLabeling`（按城市列站）+ `queryStationDtl`（站点详情） |
 | 需要登录吗 | **不需要**，公开网页接口 |
-| 覆盖 | 44 个城市，**3357 个**免费权益站（自营 2841 / 第三方 516），其中 **2643 个有停车优惠** |
+| 覆盖 | 44 个城市，**3349 个**免费权益站（自营 2841 / 第三方 508），其中 **2643 个有停车优惠** |
 | 完整度 | 地址、价格、桩数 **100% 齐全**，0 个失败 |
 | 字段 | 站名、坐标、省市区地址、快充/慢充/超充桩数、电费+服务费、**是否免费权益**、**是否有停车优惠**、是否即插即充 |
 
@@ -26,8 +26,8 @@
 **方式一（推荐）：起个本地服务**
 
 ```bash
-python3 build.py          # 先生成 dist/
-cd dist && python3 -m http.server 8000
+python3 build.py                    # 重新生成 index.html + data.json(.gz) + split/
+python3 -m http.server 8000         # 在仓库根目录起服务
 # 浏览器打开 http://localhost:8000/
 ```
 
@@ -36,7 +36,7 @@ cd dist && python3 -m http.server 8000
 
 手机上打开会自动切换成底部面板布局。
 
-> 页面必须由 http 服务提供（`fetch` 读数据受同源限制），直接双击 `dist/index.html` 会提示起服务。
+> 页面必须由 http 服务提供（`fetch` 读数据受同源限制），直接双击 `index.html` 会提示起服务。
 > 临时换一份数据集，地址栏加参数即可：`...?data=别的.json`
 
 ### ① 附近
@@ -96,7 +96,7 @@ python3 get_route.py --from-city 杭州 --to-city 苏州
 这两者严格分开，`dist/` 全部是 `build.py` 生成的，**不手工改、不入库**。
 
 ```
-data/                          源数据（人工/脚本维护，入 git）
+data/                          源数据（人工/脚本维护，入 git）  ← 唯一源头
 ├── cities.json                44 个城市的中心点
 ├── meta.json                  各城市站数 + 最后更新时间
 ├── stations/
@@ -107,18 +107,19 @@ data/                          源数据（人工/脚本维护，入 git）
     ├── 杭州→上海.json          一条真实驾车路线
     └── ...  (9 条)
 
-dist/                          构建产物（build.py 生成，不入 git）
-├── index.html                 36 KB  页面本体
-├── data.json                  921 KB 全量数据
-├── data.json.gz               261 KB 全量数据压缩版（页面优先用它）
-└── split/
-    ├── index.json             城市索引，首屏先加载这个
-    └── 杭州.json.gz            按城市分包，单城约 5 KB
+index.html                     40 KB  构建产物
+data.json                     1.3 MB  构建产物
+data.json.gz                  261 KB  构建产物（页面优先用它）
+split/                       516 KB  构建产物
+├── index.json                       城市索引，首屏先加载这个
+└── 杭州.json.gz                      按城市分包，单城约 5 KB
 ```
 
-为什么不把源数据和产物混在一起：之前 `data/stations.json`、根目录 `data.json`、
-`out/data.json` 是同一份数据的三个副本，共 4 MB。现在只有一个源头 `data/`，
-产物 `dist/` 随构建重生成。
+上层三个文件是 `build.py` 从 `data/` 生成的**发布快照**，因为 GitHub Pages 只能从仓库某个目录直接发布，
+所以它们必须留在根目录并入库；但**不要手工改**，改完 `data/` 重跑 `build.py` 即可覆盖。
+
+只有一个源头 `data/`。之前 `data/stations.json`、根目录 `data.json`、`out/data.json`
+是同一份数据的三个副本（共 4 MB），现在已删除，产物随构建重生成。
 
 ---
 
@@ -127,11 +128,12 @@ dist/                          构建产物（build.py 生成，不入 git）
 | 文件 | 作用 |
 |---|---|
 | `store.py` | 源数据读写层，所有脚本都通过它，保证结构一致 |
-| `build.py` | 源数据 → `dist/`（页面 + 全量包 + 城市分包），含数据校验 |
+| `build.py` | 源数据 → 根目录发布快照（页面 + 全量包 + 城市分包），含数据校验 |
 | `fetch_xpeng.py` | 采集站点，按城市落盘，支持 `--cities` / `--stale` 增量 |
 | `fetch_fast.py` | 多线程补抓详情 |
 | `get_route.py` | 取高德真实驾车路线（免 key） |
 | `migrate_source.py` | 一次性迁移脚本（把旧的单个大 json 拆成按城市） |
+| `push_github.py` | 用 GitHub REST API 同步到远端（本机 `git push` 不通时的替代） |
 | `template.html` | 页面模板 |
 
 ---

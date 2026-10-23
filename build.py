@@ -3,13 +3,15 @@
 """
 build.py —— 把「按城市拆分的源数据」打包成「网页要的格式」
 
-源数据（人工/脚本增量维护）        产物（dist/，不手工改）
+源数据（人工/脚本增量维护）        产物（仓库根目录，不手工改、由本脚本生成）
   data/cities.json            ─┐
-  data/stations/*.json        ─┼─►  dist/index.html
-  data/routes/*.json          ─┘    dist/data.json      全量包（890 KB）
-                                    dist/data.json.gz   全量包压缩（261 KB）
-                                    dist/split/index.json      城市索引（首屏先加载）
-                                    dist/split/<城市>.json.gz  按城市分包
+  data/stations/*.json        ─┼─►  index.html            页面
+  data/routes/*.json          ─┘    data.json             全量包
+                                    data.json.gz          全量包压缩（页面优先用它）
+                                    split/index.json      城市索引（首屏先加载）
+                                    split/<城市>.json.gz  按城市分包
+
+产物是确定性的：内容没变就不重写文件，重跑不会产生 git diff。
 
 用法：
   python3 build.py                 # 全量打包
@@ -27,6 +29,29 @@ import store
 ROOT = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE = os.path.join(ROOT, "template.html")
 PUBLISH = ROOT          # 直接输出到仓库根目录，Pages 从根目录发布
+
+
+def _read_json(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def write_if_changed(path, data: bytes) -> bool:
+    """内容一样就不写，避免 mtime 变动导致 git 上一堆假 diff。返回是否真的写了。"""
+    try:
+        with open(path, "rb") as f:
+            if f.read() == data:
+                return False
+    except OSError:
+        pass
+    tmp = path + ".tmp"
+    with open(tmp, "wb") as f:
+        f.write(data)
+    os.replace(tmp, path)
+    return True
 
 
 def load_source():
@@ -95,26 +120,28 @@ def main():
     os.makedirs(a.out, exist_ok=True)
 
     # ---------- 全量包 ----------
-    bundle = {
-        "cities": cities,
-        "points": points,
-        "routes": routes,
-        "builtAt": datetime.now().isoformat(timespec="seconds"),
-    }
-    payload = json.dumps(bundle, ensure_ascii=False, separators=(",", ":"))
     json_path = os.path.join(a.out, "data.json")
-    with open(json_path, "w", encoding="utf-8") as f:
-        f.write(payload)
-
     gz_path = json_path + ".gz"
-    with open(gz_path, "wb") as f:
-        f.write(gzip.compress(payload.encode("utf-8"), 9))
+
+    # builtAt 只反映「数据真的变了」的时间。内容没变时沿用上次的值，
+    # 配合 write_if_changed，重跑 build.py 不会产生任何 git diff。
+    fresh = {"cities": cities, "points": points, "routes": routes}
+    prev = _read_json(json_path)
+    if prev and {k: prev.get(k) for k in fresh} == fresh and prev.get("builtAt"):
+        built_at = prev["builtAt"]
+    else:
+        built_at = datetime.now().isoformat(timespec="seconds")
+
+    payload = json.dumps({**fresh, "builtAt": built_at},
+                         ensure_ascii=False, separators=(",", ":"))
+    write_if_changed(json_path, payload.encode("utf-8"))
+    # gzip 的 mtime 固定为 0，否则同样的内容每次压缩出的字节都不一样
+    write_if_changed(gz_path, gzip.compress(payload.encode("utf-8"), 9, mtime=0))
 
     # ---------- 页面 ----------
     html = build_html(a.amap_key)
     html_path = os.path.join(a.out, "index.html")
-    with open(html_path, "w", encoding="utf-8") as f:
-        f.write(html)
+    write_if_changed(html_path, html.encode("utf-8"))
 
     print()
     print(f"  {html_path}   {len(html)/1024:.0f} KB")
@@ -132,21 +159,28 @@ def main():
 
         index = {"cities": cities, "routes": routes, "counts": {}}
         total_split = 0
+        written = 0
         for city, arr in by_city.items():
             one = {"city": city, "points": arr}
             s = json.dumps(one, ensure_ascii=False, separators=(",", ":"))
-            b = gzip.compress(s.encode("utf-8"), 9)
-            with open(os.path.join(split_dir, f"{city}.json.gz"), "wb") as f:
-                f.write(b)
+            b = gzip.compress(s.encode("utf-8"), 9, mtime=0)
+            if write_if_changed(os.path.join(split_dir, f"{city}.json.gz"), b):
+                written += 1
             total_split += len(b)
             index["counts"][city] = len(arr)
 
+        # 清掉源数据里已经不存在的城市包（比如某城市被并入别的城市）
+        alive = {f"{c}.json.gz" for c in by_city}
+        for old in os.listdir(split_dir):
+            if old.endswith(".json.gz") and old not in alive:
+                os.remove(os.path.join(split_dir, old))
+                print(f"  清理过期分包 {old}")
+
         idx_s = json.dumps(index, ensure_ascii=False, separators=(",", ":"))
-        with open(os.path.join(split_dir, "index.json"), "w", encoding="utf-8") as f:
-            f.write(idx_s)
+        write_if_changed(os.path.join(split_dir, "index.json"), idx_s.encode("utf-8"))
 
         print(f"  {split_dir}/   {len(by_city)} 个城市包，合计 {total_split/1024:.0f} KB"
-              f"（单城平均 {total_split/1024/len(by_city):.0f} KB）")
+              f"（单城平均 {total_split/1024/len(by_city):.0f} KB，本次更新 {written} 个）")
 
     print()
     print(f"  合计 城市 {len(cities)} · 站点 {len(points)} · 路线 {len(routes)}")
