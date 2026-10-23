@@ -26,19 +26,18 @@
 **方式一（推荐）：起个本地服务**
 
 ```bash
-cd out && python3 -m http.server 8000
-# 浏览器打开 http://localhost:8000/charge_map.html
+python3 build.py          # 先生成 dist/
+cd dist && python3 -m http.server 8000
+# 浏览器打开 http://localhost:8000/
 ```
 
-**方式二：双击 HTML**
-页面会回退到内联快照（单文件版才带）。分离版双击会提示起服务，这是浏览器的安全限制，不是 bug。
-
-**方式三：在线访问**（开启 GitHub Pages 后）
+**方式二：在线访问**
 `https://emfox.github.io/xiaopeng-site/`
 
 手机上打开会自动切换成底部面板布局。
 
-> 想临时换一份数据集，地址栏加参数即可：`...?data=别的.json`
+> 页面必须由 http 服务提供（`fetch` 读数据受同源限制），直接双击 `dist/index.html` 会提示起服务。
+> 临时换一份数据集，地址栏加参数即可：`...?data=别的.json`
 
 ### ① 附近
 自动定位你当前位置，默认 **5 km** 内的站。虚线圆 = 距离圈，可选 3/5/10/20 km 或不限。
@@ -62,80 +61,78 @@ cd out && python3 -m http.server 8000
 
 ---
 
-## 更新数据（建议 1~2 个月一次）
+## 更新数据（增量，只动变化的那部分）
+
+数据是**按城市拆开存的**，`data/stations/杭州.json` 就是一个文件一个城市。
+所以日常更新只改你关心的那几个城市，不用重抓全国。
 
 ```bash
-# 抓全国 44 城，含地址/价格/停车优惠（约 15 分钟）
-python3 fetch_xpeng.py --with-detail --out data/stations.json
+# 只刷某几个城市（约 10 秒/城）
+python3 fetch_xpeng.py --cities 杭州,上海 --with-detail
 
-# 只抓你常走的城市，快得多
-python3 fetch_xpeng.py --cities 杭州,上海,苏州 --with-detail --out data/mine.json
+# 自动找出超过 30 天没更新的城市，只刷它们
+python3 fetch_xpeng.py --stale 30 --with-detail
 
-# 生成页面（数据与页面分离：index.html 约 34 KB + data.json 约 1.1 MB）
-python3 charge_map.py --data data/stations.json \
-  --routes data/route_*.json --out out/charge_map.html
+# 全量刷一遍（约 15 分钟）
+python3 fetch_xpeng.py --with-detail
 
-# 想要「双击即用」的单文件版（数据内联，约 2 MB）
-python3 charge_map.py --data data/stations.json \
-  --routes data/route_*.json --out out/single.html --single-file
+# 重新打包成网页（秒级）
+python3 build.py
 ```
 
-路线数据（可选，加了才有真实高速线）：
+> **只刷列表不会丢详情**：不带 `--with-detail` 时，地址/价格/停车优惠这些旧值会自动保留，
+> 只更新站名、坐标、桩数。所以可以「先快速刷一遍列表，详情慢慢补」。
+
+加新路线：
 ```bash
-python3 get_route.py --from-city 杭州 --to-city 上海 --out data/route_hz_sh.json
+python3 get_route.py --from-city 杭州 --to-city 苏州
+# 自动写入 data/routes/杭州→苏州.json
 ```
 
 ---
 
-## 文件说明
+## 目录结构：源数据 vs 构建产物
+
+这两者严格分开，`dist/` 全部是 `build.py` 生成的，**不手工改、不入库**。
+
+```
+data/                          源数据（人工/脚本维护，入 git）
+├── cities.json                44 个城市的中心点
+├── meta.json                  各城市站数 + 最后更新时间
+├── stations/
+│   ├── 杭州.json              一个城市一个文件 ← 增量更新只动这里
+│   ├── 上海.json
+│   └── ...  (44 个)
+└── routes/
+    ├── 杭州→上海.json          一条真实驾车路线
+    └── ...  (9 条)
+
+dist/                          构建产物（build.py 生成，不入 git）
+├── index.html                 36 KB  页面本体
+├── data.json                  921 KB 全量数据
+├── data.json.gz               261 KB 全量数据压缩版（页面优先用它）
+└── split/
+    ├── index.json             城市索引，首屏先加载这个
+    └── 杭州.json.gz            按城市分包，单城约 5 KB
+```
+
+为什么不把源数据和产物混在一起：之前 `data/stations.json`、根目录 `data.json`、
+`out/data.json` 是同一份数据的三个副本，共 4 MB。现在只有一个源头 `data/`，
+产物 `dist/` 随构建重生成。
+
+---
+
+## 代码分工
 
 | 文件 | 作用 |
 |---|---|
-| `index.html` / `out/charge_map.html` | **页面本体**，约 34 KB，不含数据 |
-| `data.json` / `out/data.json` | **页面数据**，约 1.1 MB，可直接编辑 |
-| `fetch_xpeng.py` | 抓小鹏官方免费站数据（分片落盘、可断点续抓） |
-| `fetch_fast.py` | 多线程补抓详情，比逐个抓快 10 倍以上 |
+| `store.py` | 源数据读写层，所有脚本都通过它，保证结构一致 |
+| `build.py` | 源数据 → `dist/`（页面 + 全量包 + 城市分包），含数据校验 |
+| `fetch_xpeng.py` | 采集站点，按城市落盘，支持 `--cities` / `--stale` 增量 |
+| `fetch_fast.py` | 多线程补抓详情 |
 | `get_route.py` | 取高德真实驾车路线（免 key） |
-| `charge_map.py` | 把数据 + 路线合成页面和 data.json |
-| `template.html` | 页面模板（三层视图 + 高德 JS API，不含数据） |
-| `data/stations.json` | 采集产出的原始数据（无路线，未补 city） |
-| `data/route_*.json` | 真实路线数据 |
-| `legacy/` | 早期版本（导出 Excel/KML/CSV 的路线），仅作留档 |
-
----
-
-## 为什么数据和页面要分开
-
-原先数据被 inline 写进 HTML，1.7 MB 的文件里有 96% 是 JSON，导致：
-
-- 改一条数据要重新生成整个页面，git 里永远是一次全量 diff
-- 浏览器没法单独缓存数据
-- 没法用别的前端消费同一份数据
-
-现在页面只管渲染，数据独立成 `data.json`。想手工改某个站的价格或名称，直接编辑 json 就行，刷新页面即生效。
-
----
-
-## 目录结构
-
-```
-.
-├── index.html               # 34 KB 页面本体（Pages 首页）
-├── data.json                # 1.1 MB 页面数据
-├── out/
-│   ├── charge_map.html      # 同 index.html
-│   └── data.json            # 同根目录 data.json
-├── fetch_xpeng.py           # 采集
-├── fetch_fast.py            # 并发补抓
-├── get_route.py             # 取路线
-├── charge_map.py            # 合成页面 + data.json
-├── template.html            # 模板
-├── data/
-│   ├── stations.json        # 采集原始数据
-│   └── route_*.json         # 9 条真实路线
-└── legacy/                  # 早期产物（不参与构建）
-```
-
+| `migrate_source.py` | 一次性迁移脚本（把旧的单个大 json 拆成按城市） |
+| `template.html` | 页面模板 |
 
 ---
 
