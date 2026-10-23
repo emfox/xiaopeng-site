@@ -22,7 +22,23 @@
 ## 怎么用
 
 ### 打开页面
-直接双击 `out/charge_map.html`（或拖进浏览器）。手机上打开同样布局，底部是面板。
+
+**方式一（推荐）：起个本地服务**
+
+```bash
+cd out && python3 -m http.server 8000
+# 浏览器打开 http://localhost:8000/charge_map.html
+```
+
+**方式二：双击 HTML**
+页面会回退到内联快照（单文件版才带）。分离版双击会提示起服务，这是浏览器的安全限制，不是 bug。
+
+**方式三：在线访问**（开启 GitHub Pages 后）
+`https://emfox.github.io/xiaopeng-site/`
+
+手机上打开会自动切换成底部面板布局。
+
+> 想临时换一份数据集，地址栏加参数即可：`...?data=别的.json`
 
 ### ① 附近
 自动定位你当前位置，默认 **5 km** 内的站。虚线圆 = 距离圈，可选 3/5/10/20 km 或不限。
@@ -55,9 +71,13 @@ python3 fetch_xpeng.py --with-detail --out data/stations.json
 # 只抓你常走的城市，快得多
 python3 fetch_xpeng.py --cities 杭州,上海,苏州 --with-detail --out data/mine.json
 
-# 生成页面
+# 生成页面（数据与页面分离：index.html 约 34 KB + data.json 约 1.1 MB）
 python3 charge_map.py --data data/stations.json \
-  --routes data/route_hz_sh.json data/route_sh_sz.json --out out/charge_map.html
+  --routes data/route_*.json --out out/charge_map.html
+
+# 想要「双击即用」的单文件版（数据内联，约 2 MB）
+python3 charge_map.py --data data/stations.json \
+  --routes data/route_*.json --out out/single.html --single-file
 ```
 
 路线数据（可选，加了才有真实高速线）：
@@ -71,15 +91,28 @@ python3 get_route.py --from-city 杭州 --to-city 上海 --out data/route_hz_sh.
 
 | 文件 | 作用 |
 |---|---|
-| `out/charge_map.html` | **成品页面**，双击就能用 |
+| `index.html` / `out/charge_map.html` | **页面本体**，约 34 KB，不含数据 |
+| `data.json` / `out/data.json` | **页面数据**，约 1.1 MB，可直接编辑 |
 | `fetch_xpeng.py` | 抓小鹏官方免费站数据（分片落盘、可断点续抓） |
 | `fetch_fast.py` | 多线程补抓详情，比逐个抓快 10 倍以上 |
 | `get_route.py` | 取高德真实驾车路线（免 key） |
-| `charge_map.py` | 把数据 + 路线合成页面 |
-| `template.html` | 页面模板（三层视图 + 高德 JS API） |
-| `data/stations.json` | 抓下来的站点数据主体 |
+| `charge_map.py` | 把数据 + 路线合成页面和 data.json |
+| `template.html` | 页面模板（三层视图 + 高德 JS API，不含数据） |
+| `data/stations.json` | 采集产出的原始数据（无路线，未补 city） |
 | `data/route_*.json` | 真实路线数据 |
 | `legacy/` | 早期版本（导出 Excel/KML/CSV 的路线），仅作留档 |
+
+---
+
+## 为什么数据和页面要分开
+
+原先数据被 inline 写进 HTML，1.7 MB 的文件里有 96% 是 JSON，导致：
+
+- 改一条数据要重新生成整个页面，git 里永远是一次全量 diff
+- 浏览器没法单独缓存数据
+- 没法用别的前端消费同一份数据
+
+现在页面只管渲染，数据独立成 `data.json`。想手工改某个站的价格或名称，直接编辑 json 就行，刷新页面即生效。
 
 ---
 
@@ -87,14 +120,18 @@ python3 get_route.py --from-city 杭州 --to-city 上海 --out data/route_hz_sh.
 
 ```
 .
-├── out/charge_map.html      # 成品，双击打开
+├── index.html               # 34 KB 页面本体（Pages 首页）
+├── data.json                # 1.1 MB 页面数据
+├── out/
+│   ├── charge_map.html      # 同 index.html
+│   └── data.json            # 同根目录 data.json
 ├── fetch_xpeng.py           # 采集
 ├── fetch_fast.py            # 并发补抓
 ├── get_route.py             # 取路线
-├── charge_map.py            # 合成页面
+├── charge_map.py            # 合成页面 + data.json
 ├── template.html            # 模板
 ├── data/
-│   ├── stations.json        # 3357 个站
+│   ├── stations.json        # 采集原始数据
 │   └── route_*.json         # 9 条真实路线
 └── legacy/                  # 早期产物（不参与构建）
 ```
