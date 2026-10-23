@@ -77,13 +77,23 @@ def save_city(city, points, merge=True):
     """
     if merge:
         old = {str(p.get("id")): p for p in load_city(city)}
-        keep_keys = ("addr", "price", "park", "oper", "freeNums", "labels", "guns", "power")
+        # 列表接口只给名称/坐标/桩数，详情接口才给地址/价格/优惠。
+        # 这些字段新值为空、旧值有，就把旧值留住——避免「只刷列表」把详情抹掉。
+        keep_keys = ("addr", "price", "park", "oper", "freeNums", "labels",
+                     "guns", "power", "dc", "ac", "s4", "mode", "xpOwner")
         for p in points:
             prev = old.get(str(p.get("id")))
             if not prev:
                 continue
             for k in keep_keys:
-                if (p.get(k) in (None, "", 0, False)) and prev.get(k) not in (None, "", 0, False):
+                if k not in prev:
+                    continue
+                # 旧值算「有内容」才值得保留；0 对桩数是有意义的，所以单列 dc/ac/s4
+                prev_has = prev[k] is not None and prev[k] != "" and prev[k] is not False
+                if not prev_has:
+                    continue
+                cur = p.get(k)
+                if cur is None or cur == "" or cur is False or (cur == 0 and k not in ("dc", "ac", "s4")):
                     p[k] = prev[k]
 
     points = sorted(points, key=lambda p: (p.get("name") or ""))
