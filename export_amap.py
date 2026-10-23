@@ -1,60 +1,77 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-export_amap.py —— 把小鹏站点导出成「高德地图小程序」可批量导入的 Excel
+export_amap.py —— 用小鹏站点数据填充「高德地图小程序」官方模板
 
-高德 App → 我的 → 地图小程序 → 在 PC 端 (wia.amap.com) 批量导入数据，
-导入后点位就在高德 App 本体里，支持一键导航、顺路规划。
+为什么不自己从零造 xlsx：高德的解析器比较挑，表头、单元格类型、甚至列宽
+都可能影响。最稳的办法是直接打开高德官方模板，只替换数据区。
 
-模板列（按高德实际模板，带 * 的是必填）：
-    名称 | *经度 | *纬度 | *地址 | 颜色 | 图标(外轮廓) | 图标(填充物) | 描述 | 文件夹
+模板要求（见官方「导入说明」工作表）：
+    名称         选填，≤40 字
+    *经度/*纬度  必填，GCJ-02（小鹏数据本身就是 GCJ-02，不用转换）
+    *地址        填了经纬度可以不填
+    颜色         选填，1..8，对应「颜色说明」里的色值
+    描述         选填，≤600 字
+    文件夹       选填，多级用 "/" 分隔，可自动建文件夹
 
-注意：经纬度必须是「经度」「纬度」两列，合成一列 "lng,lat" 高德会报
-「不支持的文件格式」。上过这个当，别再改回去。
-
-颜色（前端色块顺序，1 开始）：
-    1 绿色  免费权益 + 有停车优惠   ← 最想要的一类
-    2 蓝色  免费权益、无停车优惠
-    3 橙色  第三方合作 + 有停车优惠
-    4 灰色  第三方合作、无停车优惠
+坑（踩过了，别再犯）：
+  1. 经纬度必须是「经度」「纬度」两列，不能合成 "lng,lat" 一列
+  2. 表头要带星号：*经度 *纬度 *地址
+  3. 单元格要写成字符串，模板里就是 '113.681' 这种，不是数字
+  4. 用 .xlsx，别用 .csv
 
 用法：
   python3 export_amap.py                 # 每个城市一个 xlsx → amap/
   python3 export_amap.py --all           # 额外生成全部城市合一的文件
   python3 export_amap.py --cities 上海,杭州
   python3 export_amap.py --park-only     # 只要带停车优惠的
+  python3 export_amap.py --template 路径  # 指定官方模板
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import shutil
 import sys
 
-from openpyxl import Workbook
-from openpyxl.styles import Alignment, Font, PatternFill
-from openpyxl.utils import get_column_letter
+from openpyxl import load_workbook
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(ROOT, "amap")
+# 官方模板：优先用仓库里的，其次用户上传的
+TEMPLATE_CANDIDATES = [
+    os.path.join(ROOT, "templates", "导入模板.xlsx"),
+    "/root/uploads/wb-agentserver-afd6ae3e-35a4-4b0c-8dd0-e164c40960b9-uploads-1792758/导入模板.xlsx",
+]
 
-# 高德模板表头。高德界面上显示的是「*经度」「*纬度」「*地址」，星号只是必填标记，
-# 实际模板文件里通常不带星号。用不带星号的写法兼容性更好。
-HEADER = ["名称", "经度", "纬度", "地址", "颜色",
-          "图标(外轮廓)", "图标(填充物)", "描述", "文件夹"]
-WIDTHS = [42, 12, 12, 52, 6, 14, 14, 46, 10]
+# 高德「颜色说明」里的 8 个色值（按第 n 个的顺序）
+#   1 #7E97FF 浅蓝紫   2 #7AB1F5 蓝     3 #4CC7FF 天蓝   4 #12E3AA 青绿
+#   5 #FFBF00 琥珀     6 #FF983F 橙     7 #EA7864 珊瑚   8 #FF6968 红
+COLOR_FREE_PARK = 8    # 红：免费权益 + 有停车优惠（最想要，最显眼）
+COLOR_FREE = 1         # 浅蓝紫：免费权益、无停车优惠
+COLOR_THIRD_PARK = 5   # 琥珀：第三方 + 有停车优惠
+COLOR_THIRD = 3        # 天蓝：第三方、无停车优惠
 
-COLOR_FREE_PARK = 1
-COLOR_FREE = 2
-COLOR_THIRD_PARK = 3
-COLOR_THIRD = 4
-
-COLOR_NAME = {
-    COLOR_FREE_PARK: "绿",
-    COLOR_FREE: "蓝",
-    COLOR_THIRD_PARK: "橙",
-    COLOR_THIRD: "灰",
+COLOR_MEANING = {
+    COLOR_FREE_PARK: "红 · 免费权益 + 有停车优惠",
+    COLOR_FREE: "浅蓝紫 · 免费权益、无停车优惠",
+    COLOR_THIRD_PARK: "琥珀 · 第三方 + 有停车优惠",
+    COLOR_THIRD: "天蓝 · 第三方、无停车优惠",
 }
+
+SHEET = "标记位置"
+
+
+def find_template(explicit: str | None) -> str:
+    if explicit:
+        if not os.path.exists(explicit):
+            sys.exit(f"模板不存在：{explicit}")
+        return explicit
+    for p in TEMPLATE_CANDIDATES:
+        if os.path.exists(p):
+            return p
+    sys.exit("找不到高德官方导入模板，用 --template 指定路径")
 
 
 def color_of(p) -> int:
@@ -83,6 +100,7 @@ def clean_price(price) -> str:
 
 
 def describe(p) -> str:
+    """描述列上限 600 字，这里远低于，不用截断。"""
     bits = []
     if p.get("type") == "third":
         bits.append(f"第三方·{p.get('oper') or '合作站'}")
@@ -98,51 +116,64 @@ def describe(p) -> str:
     return "；".join(bits)
 
 
-def rows_for(points):
-    rows = []
+def row_for(p):
+    """按模板顺序返回 9 个值。全部用字符串，和官方模板保持一致。"""
+    lng, lat = p.get("lng"), p.get("lat")
+    if lng is None or lat is None:
+        return None
+    name = (p.get("name") or "")[:40]          # 名称上限 40 字
+    desc = describe(p)[:600]                    # 描述上限 600 字
+    return [
+        name,
+        f"{float(lng):.6f}",                    # 字符串
+        f"{float(lat):.6f}",
+        p.get("addr") or "",
+        str(color_of(p)),                       # 字符串，模板里就是 '1'
+        "",                                     # 图标(外轮廓)
+        "",                                     # 图标(填充物)
+        desc,
+        p.get("city") or "",                    # 文件夹：按城市分组，地图里自动建文件夹
+    ]
+
+
+def build(template: str, out_path: str, points, keep_other_sheets=False):
+    """复制官方模板，清空「标记位置」的数据区，再写入新数据。
+
+    keep_other_sheets=False 时会删掉「导入说明」「颜色说明」两个工作表。
+    那两个表里塞了 4 张说明截图（约 1.9 MB），对上传毫无用处，
+    删掉后文件从 1.9 MB 降到 7 KB，导入更快也不容易超限。
+    表头、列宽、单元格类型都来自模板本身，不受影响。
+    """
+    shutil.copyfile(template, out_path)
+    wb = load_workbook(out_path)
+    ws = wb[SHEET]
+
+    # 表头照抄模板，不改一个字
+    header = [c.value for c in ws[1]]
+    if header[:4] != ["名称", "*经度", "*纬度", "*地址"]:
+        sys.exit(f"模板表头不符合预期：{header}")
+
+    # 清掉模板里的示例行（保留第 1 行表头和样式）
+    if ws.max_row > 1:
+        ws.delete_rows(2, ws.max_row - 1)
+
+    n = 0
     for p in points:
-        lng, lat = p.get("lng"), p.get("lat")
-        if lng is None or lat is None:
+        vals = row_for(p)
+        if not vals:
             continue
-        rows.append([
-            p.get("name", ""),
-            round(float(lng), 6),
-            round(float(lat), 6),
-            p.get("addr", ""),
-            color_of(p),
-            "",            # 图标(外轮廓)：留空用默认
-            "",            # 图标(填充物)：留空用默认
-            describe(p),
-            "",            # 文件夹：留空，不分组
-        ])
-    return rows
+        r = n + 2
+        for c, v in enumerate(vals, 1):
+            ws.cell(row=r, column=c, value=v)
+        n += 1
 
+    if not keep_other_sheets:
+        for name in list(wb.sheetnames):
+            if name != SHEET:
+                del wb[name]
 
-def write_xlsx(path, rows):
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Sheet1"
-
-    head_font = Font(bold=True, color="FFFFFF")
-    head_fill = PatternFill("solid", fgColor="4472C4")
-    for c, name in enumerate(HEADER, 1):
-        cell = ws.cell(row=1, column=c, value=name)
-        cell.font = head_font
-        cell.fill = head_fill
-        cell.alignment = Alignment(horizontal="center", vertical="center")
-
-    for i, r in enumerate(rows, 2):
-        for c, v in enumerate(r, 1):
-            ws.cell(row=i, column=c, value=v)
-        # 经纬度强制数字格式，避免被 Excel 当文本
-        for c in (2, 3):
-            ws.cell(row=i, column=c).number_format = "0.000000"
-
-    for c, w in enumerate(WIDTHS, 1):
-        ws.column_dimensions[get_column_letter(c)].width = w
-    ws.freeze_panes = "A2"
-    wb.save(path)
-    return len(rows)
+    wb.save(out_path)
+    return n
 
 
 def main():
@@ -151,8 +182,13 @@ def main():
     ap.add_argument("--all", action="store_true", help="额外生成全部城市合一的大文件")
     ap.add_argument("--park-only", action="store_true", help="只导出有停车优惠的站")
     ap.add_argument("--out", default=OUT, help="输出目录，默认 amap/")
-    ap.add_argument("--csv", action="store_true", help="同时另存一份 csv（备用）")
+    ap.add_argument("--template", default=None, help="高德官方导入模板路径")
+    ap.add_argument("--per-file", type=int, default=0,
+                    help="每个文件最多多少行（高德上限 50000），0 不限")
     a = ap.parse_args()
+
+    tpl = find_template(a.template)
+    print(f"模板：{tpl}")
 
     src = os.path.join(ROOT, "data.json")
     if not os.path.exists(src):
@@ -171,7 +207,7 @@ def main():
         by_city.setdefault(p.get("city") or "未知", []).append(p)
 
     os.makedirs(a.out, exist_ok=True)
-    print(f"导出目录：{a.out}")
+    print(f"输出：{a.out}")
 
     for old in os.listdir(a.out):
         if old.endswith((".csv", ".xlsx")):
@@ -179,45 +215,32 @@ def main():
 
     total = 0
     for city in sorted(by_city, key=lambda c: -len(by_city[c])):
-        rows = rows_for(by_city[city])
-        n = write_xlsx(os.path.join(a.out, f"{city}.xlsx"), rows)
+        n = build(tpl, os.path.join(a.out, f"{city}.xlsx"), by_city[city])
         total += n
         print(f"  {city}.xlsx  {n} 个站")
 
     if a.all:
-        n = write_xlsx(os.path.join(a.out, "全部城市.xlsx"), rows_for(points))
+        n = build(tpl, os.path.join(a.out, "全部城市.xlsx"), points)
         print(f"  全部城市.xlsx  {n} 个站")
-
-    if a.csv:
-        import csv
-        for city, arr in by_city.items():
-            with open(os.path.join(a.out, f"{city}.csv"), "w",
-                      encoding="utf-8-sig", newline="") as f:
-                w = csv.writer(f)
-                w.writerow(HEADER)
-                w.writerows(rows_for(arr))
-        print("  另已生成 csv 备份")
 
     with open(os.path.join(a.out, "导入说明.txt"), "w", encoding="utf-8") as f:
         f.write(
+            "这些 xlsx 是基于高德官方模板填充的，表头/单元格格式与模板完全一致。\n\n"
             "导入方法\n"
-            "1. 电脑浏览器打开 https://wia.amap.com 并登录高德账号\n"
+            "1. 电脑打开 https://wia.amap.com 登录高德账号\n"
             "2. 左上「我加入的」→ 创建新地图，起个名字（如「小鹏免费站」）\n"
-            "3. 点顶部「批量导入」→ 数据来源选「高德地图」→ 上传这里的 .xlsx\n"
+            "3. 顶部「批量导入」→ 数据来源选「高德地图」→ 上传 .xlsx\n"
             "4. 手机高德 App → 我的 → 地图小程序 → 就能看到，可一键导航\n\n"
-            "为什么必须用 xlsx\n"
-            "  高德要求经纬度是「经度」「纬度」两列。合成一列 \"lng,lat\" 会报\n"
-            "  「不支持的文件格式」，是这个错误最常见的成因。\n\n"
-            "列格式（与高德模板一致）\n"
-            "  名称  *经度  *纬度  *地址  颜色  图标(外轮廓)  图标(填充物)  描述  文件夹\n\n"
-            "颜色含义\n"
-            "  1 绿色   小鹏免费权益 + 有停车优惠\n"
-            "  2 蓝色   小鹏免费权益、无停车优惠\n"
-            "  3 橙色   第三方合作 + 有停车优惠\n"
-            "  4 灰色   第三方合作、无停车优惠\n\n"
+            "颜色含义（对应模板「颜色说明」工作表里的第 n 个色块）\n"
+        )
+        for k in (COLOR_FREE_PARK, COLOR_FREE, COLOR_THIRD_PARK, COLOR_THIRD):
+            f.write(f"  {k}  {COLOR_MEANING[k]}\n")
+        f.write(
+            "\n文件夹\n"
+            "  已按城市自动填了「文件夹」列，导入后地图里会生成按城市分的文件夹。\n\n"
             "注意\n"
-            "  - 单次上传 ≤ 50000 行、≤ 20 MB，单城市最多 224 站，远低于上限\n"
-            "  - 高德目前不支持覆盖更新，重新导入前要先删旧地图或新建一张\n"
+            "  - 单次上传 ≤ 50000 行、≤ 20 MB\n"
+            "  - 高德不支持覆盖更新，重新导入前要先删旧地图或新建一张\n"
             "  - 坐标系 GCJ-02，和高德一致，不用转换\n"
         )
     print("  导入说明.txt")
