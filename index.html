@@ -203,8 +203,27 @@ function loadData() {
   if (location.protocol === 'file:' && !qs.get('data')) {
     return useInline('当前是本地文件方式打开（file://）');
   }
-  return fetch(file, { cache: 'no-cache' })
-    .then(r => { if (!r.ok) throw new Error(r.status + ' ' + r.statusText); return r.json(); })
+
+  // GitHub Pages 不压缩响应，1.5 MB 文本要传 7 秒。
+  // 优先取 gzip 版（约 1/6 体积），用浏览器自带 DecompressionStream 解开；
+  // 浏览器不支持或文件不存在时，自动退回未压缩的 json。
+  const gunzip = async (resp) => {
+    if (!('DecompressionStream' in window) || !resp.ok) throw new Error('no gunzip');
+    const ds = new DecompressionStream('gzip');
+    const stream = resp.body.pipeThrough(ds);
+    return new Response(stream).json();
+  };
+
+  const plain = () => fetch(file, { cache: 'no-cache' })
+    .then(r => { if (!r.ok) throw new Error(r.status + ' ' + r.statusText); return r.json(); });
+
+  const t0 = performance.now();
+  // 只有默认数据集才尝试 .gz；手动指定的文件按原样取
+  const gzUrl = qs.get('data') ? null : file + '.gz';
+  return (gzUrl ? fetch(gzUrl, { cache: 'no-cache' }).then(gunzip) : Promise.reject())
+    .then(d => { console.info(`[charge-map] 数据加载 ${Math.round(performance.now()-t0)}ms`);
+                 return d; })
+    .catch(() => plain())
     .catch(e => useInline('读取 ' + file + ' 失败（' + e.message + '）'));
 }
 
