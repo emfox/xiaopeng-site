@@ -203,8 +203,27 @@ function loadData() {
   if (location.protocol === 'file:' && !qs.get('data')) {
     return useInline('当前是本地文件方式打开（file://）');
   }
-  return fetch(file, { cache: 'no-cache' })
-    .then(r => { if (!r.ok) throw new Error(r.status + ' ' + r.statusText); return r.json(); })
+
+  // GitHub Pages 不压缩响应，1.5 MB 文本要传 7 秒。
+  // 优先取 gzip 版（约 1/6 体积），用浏览器自带 DecompressionStream 解开；
+  // 浏览器不支持或文件不存在时，自动退回未压缩的 json。
+  const gunzip = async (resp) => {
+    if (!('DecompressionStream' in window) || !resp.ok) throw new Error('no gunzip');
+    const ds = new DecompressionStream('gzip');
+    const stream = resp.body.pipeThrough(ds);
+    return new Response(stream).json();
+  };
+
+  const plain = () => fetch(file, { cache: 'no-cache' })
+    .then(r => { if (!r.ok) throw new Error(r.status + ' ' + r.statusText); return r.json(); });
+
+  const t0 = performance.now();
+  // 只有默认数据集才尝试 .gz；手动指定的文件按原样取
+  const gzUrl = qs.get('data') ? null : file + '.gz';
+  return (gzUrl ? fetch(gzUrl, { cache: 'no-cache' }).then(gunzip) : Promise.reject())
+    .then(d => { console.info(`[charge-map] 数据加载 ${Math.round(performance.now()-t0)}ms`);
+                 return d; })
+    .catch(() => plain())
     .catch(e => useInline('读取 ' + file + ' 失败（' + e.message + '）'));
 }
 
@@ -307,15 +326,40 @@ function locateMe() {
       const near = nearestCity(S.me);
       if (near && near.name !== S.city) {
         S.city = near.name;
-        const sel = document.getElementById('selCity');
-        if (sel) sel.value = near.name;
-        const sd = document.getElementById('selDist');
-        if (sd) { sd.value = ''; }
+        syncCityUI();
       }
       drawMe(); refresh();
     },
     fallback, { enableHighAccuracy: false, timeout: 6000, maximumAge: 60000 }
   );
+}
+
+/* 城市变了以后，把所有跟城市相关的控件同步一遍：
+   全城层的城市下拉、区县下拉、沿线层的起点。*/
+function syncCityUI() {
+  const sel = document.getElementById('selCity');
+  if (sel) sel.value = S.city;
+  const sd = document.getElementById('selDist');
+  if (sd) sd.value = '';
+
+  // 沿线层：如果当前城市有预置路线，把起点切过去
+  const keys = Object.keys(DATA.routes || {});
+  const mine = keys.find(k => k.split('→')[0] === S.city);
+  const sf = document.getElementById('selFrom'), st = document.getElementById('selTo');
+  if (mine && sf && st) {
+    const [f, t] = mine.split('→');
+    if (sf.value !== f) {
+      sf.value = f;
+      const names = DATA.cities.map(c => c.name);
+      st.innerHTML = names.filter(n => n !== f)
+        .sort((a, b) => ((DATA.routes[f + '→' + a] ? 0 : 2) - (DATA.routes[f + '→' + b] ? 0 : 2)))
+        .map(n => `<option>${n}</option>`).join('');
+      st.value = t;
+      S.from = f; S.to = t;
+    }
+  }
+  // 区县下拉要按新城市重建（bind 里定义的函数挂在 window 上供这里调用）
+  if (window.rebuildDistricts) window.rebuildDistricts();
 }
 
 function drawMe() {
@@ -770,6 +814,7 @@ function bind() {
     selDist.style.display = set.size ? '' : 'none';
     S.dist = '';
   }
+  window.rebuildDistricts = rebuildDistricts;   // 定位换城市时要从外面调用
   rebuildDistricts();
   selDist.onchange = () => { S.dist = selDist.value; refresh(); };
 
@@ -795,9 +840,11 @@ function bind() {
       .sort((a, b) => ((DATA.routes[n + '→' + a] ? 0 : 2) - (DATA.routes[n + '→' + b] ? 0 : 2)));
 
   selFrom.innerHTML = froms.map(n => `<option>${n}</option>`).join('');
-  // 默认拿第一条预置路线
+  // 默认选一条预置路线：优先从「用户当前城市」出发的那条，没有就用第一条。
+  // 不能直接用 routeKeys[0]，那个顺序跟着文件名走，用户看到哪条全凭运气。
   if (routeKeys.length) {
-    const [f0, t0] = routeKeys[0].split('→');
+    const mine = routeKeys.find(k => k.split('→')[0] === S.city) || routeKeys[0];
+    const [f0, t0] = mine.split('→');
     selFrom.value = f0;
     selTo.innerHTML = tos(f0).map(n => `<option>${n}</option>`).join('');
     selTo.value = t0;

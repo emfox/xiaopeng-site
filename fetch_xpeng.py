@@ -20,6 +20,9 @@ import sys
 import time
 import urllib.request
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import store
+
 GATEWAY = "https://chargegateway.xiaopeng.com"
 HEADERS = {
     "Content-Type": "application/json",
@@ -87,37 +90,43 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--cities", help="逗号分隔，如 杭州,上海；默认全部")
     ap.add_argument("--with-detail", action="store_true", help="抓详情（地址/价格/停车优惠标签）")
-    ap.add_argument("--out", default="data/stations.json")
     ap.add_argument("--sleep", type=float, default=0.35)
     ap.add_argument("--detail-dir", default="data/detail_cache", help="详情分片缓存目录（支持断点续抓）")
+    ap.add_argument("--stale", type=int, metavar="DAYS",
+                    help="只重抓超过 N 天没更新过的城市（增量刷新）")
     a = ap.parse_args()
 
-    want = CITIES if not a.cities else {c: CITIES[c] for c in a.cities.split(",") if c in CITIES}
-    if not want:
-        sys.exit("城市名不在内置列表里：" + a.cities)
+    # 决定要抓哪些城市：--cities 指定 > --stale 增量 > 全部
+    if a.cities:
+        want = {c: CITIES[c] for c in a.cities.split(",") if c in CITIES}
+        if not want:
+            sys.exit("城市名不在内置列表里：" + a.cities)
+    elif a.stale:
+        old = set(store.stale_cities(a.stale))
+        want = {c: v for c, v in CITIES.items() if c in old}
+        if not want:
+            print(f"没有超过 {a.stale} 天未更新的城市，无需抓取")
+            return
+        print(f"增量刷新：{len(want)} 个城市超过 {a.stale} 天未更新")
+    else:
+        want = dict(CITIES)
 
-    list_cache = "data/city_list_cache.json"
-    allpts, seen = [], set()
-    if not a.cities and os.path.exists(list_cache):
-        with open(list_cache, encoding="utf-8") as f:
-            allpts = json.load(f)
-        seen = set(p["id"] for p in allpts)
-        want = {}
-        print(f"复用列表缓存：{len(allpts)} 个站（删除 {list_cache} 可强制重抓）", flush=True)
+    # 按城市逐个抓，抓完立刻写入 data/stations/<城市>.json —— 这就是增量更新的基础：
+    # 中途断了，已经抓完的城市已经在盘上，下次只补没抓的。
+    total = 0
     for i, (city, code) in enumerate(want.items(), 1):
         try:
             rows = fetch_city(city, code)
         except Exception as e:
             print(f"[{i}/{len(want)}] {city} 失败：{e}")
             continue
-        new = 0
+        pts = []
         for s in rows:
             sid = str(s.get("stationId"))
-            if sid in seen:
-                continue
-            seen.add(sid)
             # operationMode: 1=小鹏自营/直连, 3=第三方合作
-            allpts.append({
+            if not (s.get("longitude") and s.get("latitude")):
+                continue
+            pts.append({
                 "id": sid,
                 "name": s.get("stationName", ""),
                 "lng": float(s.get("longitude") or 0),
@@ -130,22 +139,22 @@ def main():
                 "s4": int(s.get("s4Num") or 0),
                 "xpOwner": bool(s.get("showXpOwner")),
             })
-            new += 1
-        print(f"[{i}/{len(want)}] {city:4} {len(rows):4} 条（新增 {new}）")
+        # 抓完一个城市就落盘，断了也不丢
+        store.save_city(city, pts)
+        total += len(pts)
+        print(f"[{i}/{len(want)}] {city:4} {len(pts):4} 条 -> data/stations/{city}.json", flush=True)
         time.sleep(a.sleep)
 
-    allpts = [p for p in allpts if p["lng"] and p["lat"]]
-    if not a.cities:
-        with open(list_cache, "w", encoding="utf-8") as f:
-            json.dump(allpts, f, ensure_ascii=False)
-    print(f"\n合计 {len(allpts)} 个站点，{len(set(p['city'] for p in allpts))} 个城市")
+    print(f"\n本次共写入 {total} 个站点，累计 {len(store.city_names())} 个城市")
 
     if a.with_detail:
-        import glob
         os.makedirs(a.detail_dir, exist_ok=True)
         print("抓取详情（地址 / 价格 / 停车优惠），支持断点续抓…", flush=True)
-        todo = [p for p in allpts if not os.path.exists(os.path.join(a.detail_dir, p["id"] + ".json"))]
-        print(f"  已有缓存 {len(allpts)-len(todo)} 个，待抓 {len(todo)} 个", flush=True)
+        # 只对本批城市补详情
+        batch = {c: store.load_city(c) for c in want if store.load_city(c)}
+        flat = [p for arr in batch.values() for p in arr]
+        todo = [p for p in flat if not os.path.exists(os.path.join(a.detail_dir, p["id"] + ".json"))]
+        print(f"  已有缓存 {len(flat)-len(todo)} 个，待抓 {len(todo)} 个", flush=True)
         for i, p in enumerate(todo, 1):
             try:
                 d = fetch_detail(p["id"])
@@ -167,20 +176,24 @@ def main():
                 print(f"  {i}/{len(todo)}", flush=True)
             time.sleep(a.sleep)
 
-        # 汇总缓存
-        for p in allpts:
-            fp = os.path.join(a.detail_dir, p["id"] + ".json")
-            if os.path.exists(fp):
-                p.update(json.load(open(fp, encoding="utf-8")))
+        # 把详情合并回各城市文件
+        for city, arr in batch.items():
+            for p in arr:
+                fp = os.path.join(a.detail_dir, p["id"] + ".json")
+                if os.path.exists(fp):
+                    p.update(json.load(open(fp, encoding="utf-8")))
+            store.save_city(city, arr)
+        print("  详情已合并回 data/stations/")
 
-    cities_json = [{"name": c, "code": CITIES[c], "center": CITY_CENTER.get(c, [0, 0]), "zoom": 11}
-                   for c in want if CITY_CENTER.get(c)]
-    out = {"cities": cities_json, "points": allpts, "source": "小鹏官方 pc-free-stations",
-           "fetchedAt": time.strftime("%Y-%m-%d %H:%M")}
-    os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
-    with open(a.out, "w", encoding="utf-8") as f:
-        json.dump(out, f, ensure_ascii=False)
-    print("已写入", a.out)
+    # 更新城市表：内置城市 + 已有城市，保证不丢
+    cities_json = [{"name": c, "code": CITIES.get(c, ""), "center": CITY_CENTER.get(c, [0, 0]), "zoom": 11}
+                   for c in CITIES if CITY_CENTER.get(c)]
+    store.save_cities(cities_json)
+
+    meta = store.load_meta()
+    meta["fetchedAt"] = time.strftime("%Y-%m-%d %H:%M")
+    store._write(os.path.join(store.DATA, "meta.json"), meta)
+    print("源数据已更新：data/stations/*.json")
 
 
 if __name__ == "__main__":

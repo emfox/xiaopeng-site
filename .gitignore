@@ -1,6 +1,8 @@
-# 抓取中间缓存（重跑 fetch_fast.py 会重新生成，不必入库）
+# 抓取中间缓存（重跑 fetch_xpeng.py 会重新生成，不必入库）
 data/detail_cache/
-data/city_list_cache.json
+
+# 构建产物（由 build.py 从 data/ 生成）
+dist/
 
 # Python
 __pycache__/
