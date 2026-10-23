@@ -1,0 +1,14 @@
+# 抓取中间缓存（重跑 fetch_fast.py 会重新生成，不必入库）
+data/detail_cache/
+data/city_list_cache.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 系统 / 编辑器
+.DS_Store
+.idea/
+.vscode/

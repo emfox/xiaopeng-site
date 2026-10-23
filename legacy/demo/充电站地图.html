@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>小鹏充电站 · 高德叠加地图</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;background:#eef1f5;color:#1a1a1a}
+#map{position:absolute;inset:0}
+#panel{position:absolute;top:14px;left:14px;width:344px;max-height:calc(100% - 28px);background:rgba(255,255,255,.97);
+  border-radius:14px;box-shadow:0 8px 30px rgba(0,0,0,.16);overflow:hidden;display:flex;flex-direction:column;z-index:20}
+#panel header{padding:14px 16px 10px;border-bottom:1px solid #eef0f3}
+#panel h1{font-size:15px;margin:0 0 2px}
+#panel .sub{font-size:12px;color:#8a929e}
+.toolbar{display:flex;gap:6px;padding:10px 12px;flex-wrap:wrap;border-bottom:1px solid #eef0f3}
+.chip{border:1px solid #dfe3e9;background:#fff;border-radius:999px;padding:5px 10px;font-size:12px;cursor:pointer;
+  display:flex;align-items:center;gap:5px;transition:.15s;user-select:none}
+.chip[data-on="1"]{border-color:#111;background:#111;color:#fff}
+.chip .dot{width:8px;height:8px;border-radius:50%}
+#list{overflow:auto;flex:1}
+.item{padding:10px 14px;border-bottom:1px solid #f2f4f7;cursor:pointer}
+.item:hover{background:#f7f9fc}
+.item .nm{font-size:13px;font-weight:600;line-height:1.35}
+.item .meta{font-size:11.5px;color:#7d8694;margin-top:4px}
+.badge{display:inline-block;font-size:10px;padding:1px 5px;border-radius:4px;margin-right:4px;color:#fff;vertical-align:1px}
+.b-free{background:#00b578} .b-third{background:#3d7eff} .b-park{background:#ff8f1f}
+#routeBox{padding:12px 14px;border-top:1px solid #eef0f3;font-size:12px;color:#4a5260;display:none;max-height:34%;overflow:auto}
+#routeBox b{color:#111}
+.legend{position:absolute;right:14px;bottom:14px;background:rgba(255,255,255,.95);border-radius:10px;padding:10px 12px;
+  font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,.12);z-index:15;line-height:1.9}
+.pin{position:relative;width:24px;height:24px;border-radius:50% 50% 50% 4px;transform:rotate(-45deg);
+  border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.32);display:flex;align-items:center;justify-content:center;cursor:pointer}
+.pin span{transform:rotate(45deg);font-size:11px;color:#fff;font-weight:700;line-height:1}
+.pin.free{background:#00b578} .pin.third{background:#3d7eff}
+.pin .fee{position:absolute;right:-5px;top:-5px;width:9px;height:9px;border-radius:50%;background:#ff8f1f;border:1.5px solid #fff}
+.iw{font-size:12.5px;line-height:1.65;min-width:200px}
+.iw h3{font-size:13.5px;margin:0 0 5px}
+.iw a{color:#3d7eff}
+</style></head><body>
+<div id="map"></div>
+<div id="panel">
+  <header><h1>小鹏充电站 · 高德底图</h1><div class="sub" id="stat">加载中…</div></header>
+  <div class="toolbar" id="filters">
+    <div class="chip" data-on="1" data-f="free"><i class="dot" style="background:#00b578"></i>自营/免费</div>
+    <div class="chip" data-on="1" data-f="third"><i class="dot" style="background:#3d7eff"></i>三方合作</div>
+    <div class="chip" data-on="0" data-f="park"><i class="dot" style="background:#ff8f1f"></i>仅停车优惠</div>
+    <div class="chip" data-on="1" data-f="reach">续航可达</div>
+  </div>
+  <div id="list"></div>
+  <div id="routeBox"></div>
+</div>
+<div class="legend">
+  <div><i style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#00b578;margin-right:6px"></i>小鹏自营 / 免费权益</div>
+  <div><i style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#3d7eff;margin-right:6px"></i>第三方合作站</div>
+  <div><i style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#ff8f1f;margin-right:6px"></i>角标 = 有停车优惠</div>
+</div>
+<script src="https://webapi.amap.com/maps?v=2.0&key=2f282f369e388ef01bae260cbc35edce"></script>
+<script>
+const DATA = {"center": [121.4737, 31.2304], "zoom": 10, "rangeKm": 80.0, "points": [{"name": "小鹏超充·虹桥天地站", "lng": 121.3178, "lat": 31.1952, "type": "free", "park": true, "guns": "12", "power": "480kW", "price": "1.45 元/度", "addr": "演示地址（虚构）"}, {"name": "小鹏超充·北1号站", "lng": 121.3728, "lat": 31.2152, "type": "free", "park": true, "guns": "6", "power": "480kW", "price": "1.45 元/度", "addr": "演示地址（虚构）"}, {"name": "小鹏超充·南2号站", "lng": 121.2728, "lat": 31.1652, "type": "free", "park": false, "guns": "8", "power": "480kW", "price": "1.45 元/度", "addr": "演示地址（虚构）"}, {"name": "小鹏超充·徐汇滨江站", "lng": 121.4562, "lat": 31.1836, "type": "free", "park": true, "guns": "8", "power": "360kW", "price": "1.39 元/度", "addr": "演示地址（虚构）"}, {"name": "小鹏超充·北1号站", "lng": 121.5112, "lat": 31.2036, "type": "free", "park": true, "guns": "6", "power": "360kW", "price": "1.39 元/度", "addr": "演示地址（虚构）"}, {"name": "小鹏超充·南2号站", "lng": 121.4112, "lat": 31.1536, "type": "free", "park": false, "guns": "8", "power": "360kW", "price": "1.39 元/度", "addr": "演示地址（虚构）"}, {"name": "小鹏超充·张江人工智能岛站", "lng": 121.6027, "lat": 31.2056, "type": "free", "park": true, "guns": "10", "power": "480kW", "price": "1.35 元/度", "addr": "演示地址（虚构）"}, {"name": "小鹏超充·北1号站", "lng": 121.6577, "lat": 31.2256, "type": "free", "park": true, "guns": "6", "power": "480kW", "price": "1.35 元/度", "addr": "演示地址（虚构）"}, {"name": "小鹏超充·南2号站", "lng": 121.5577, "lat": 31.1756, "type": "free", "park": false, "guns": "8", "power": "480kW", "price": "1.35 元/度", "addr": "演示地址（虚构）"}, {"name": "小鹏超充·五角场站", "lng": 121.515, "lat": 31.301, "type": "free", "park": false, "guns": "6", "power": "250kW", "price": "1.48 元/度", "addr": "演示地址（虚构）"}, {"name": "小鹏超充·北1号站", "lng": 121.57, "lat": 31.321, "type": "free", "park": true, "guns": "6", "power": "250kW", "price": "1.48 元/度", "addr": "演示地址（虚构）"}, {"name": "小鹏超充·南2号站", "lng": 121.47, "lat": 31.271, "type": "free", "park": false, "guns": "8", "power": "250kW", "price": "1.48 元/度", "addr": "演示地址（虚构）"}, {"name": "小鹏超充·嘉定新城站", "lng": 121.26, "lat": 31.38, "type": "free", "park": true, "guns": "8", "power": "480kW", "price": "1.32 元/度", "addr": "演示地址（虚构）"}, {"name": "小鹏超充·北1号站", "lng": 121.315, "lat": 31.4, "type": "free", "park": true, "guns": "6", "power": "480kW", "price": "1.32 元/度", "addr": "演示地址（虚构）"}, {"name": "小鹏超充·南2号站", "lng": 121.215, "lat": 31.35, "type": "free", "park": false, "guns": "8", "power": "480kW", "price": "1.32 元/度", "addr": "演示地址（虚构）"}, {"name": "小鹏超充·松江大学城站", "lng": 121.22, "lat": 31.035, "type": "free", "park": false, "guns": "6", "power": "250kW", "price": "1.30 元/度", "addr": "演示地址（虚构）"}, {"name": "小鹏超充·北1号站", "lng": 121.275, "lat": 31.055, "type": "free", "park": true, "guns": "6", "power": "250kW", "price": "1.30 元/度", "addr": "演示地址（虚构）"}, {"name": "小鹏超充·南2号站", "lng": 121.175, "lat": 31.005, "type": "free", "park": false, "guns": "8", "power": "250kW", "price": "1.30 元/度", "addr": "演示地址（虚构）"}, {"name": "小鹏超充·浦东金桥站", "lng": 121.59, "lat": 31.26, "type": "free", "park": true, "guns": "10", "power": "360kW", "price": "1.41 元/度", "addr": "演示地址（虚构）"}, {"name": "小鹏超充·北1号站", "lng": 121.645, "lat": 31.28, "type": "free", "park": true, "guns": "6", "power": "360kW", "price": "1.41 元/度", "addr": "演示地址（虚构）"}, {"name": "小鹏超充·南2号站", "lng": 121.545, "lat": 31.23, "type": "free", "park": false, "guns": "8", "power": "360kW", "price": "1.41 元/度", "addr": "演示地址（虚构）"}, {"name": "小鹏超充·青浦奥莱站", "lng": 121.11, "lat": 31.15, "type": "free", "park": true, "guns": "6", "power": "250kW", "price": "1.28 元/度", "addr": "演示地址（虚构）"}, {"name": "小鹏超充·北1号站", "lng": 121.165, "lat": 31.17, "type": "free", "park": true, "guns": "6", "power": "250kW", "price": "1.28 元/度", "addr": "演示地址（虚构）"}, {"name": "小鹏超充·南2号站", "lng": 121.065, "lat": 31.12, "type": "free", "park": false, "guns": "8", "power": "250kW", "price": "1.28 元/度", "addr": "演示地址（虚构）"}, {"name": "特来电·人民广场站", "lng": 121.475, "lat": 31.233, "type": "third", "park": true, "guns": "20", "power": "120kW", "price": "1.62 元/度", "addr": "演示地址（虚构）"}, {"name": "特来电·北1号站", "lng": 121.53, "lat": 31.253, "type": "third", "park": true, "guns": "6", "power": "120kW", "price": "1.62 元/度", "addr": "演示地址（虚构）"}, {"name": "特来电·南2号站", "lng": 121.43, "lat": 31.203, "type": "third", "park": false, "guns": "8", "power": "120kW", "price": "1.62 元/度", "addr": "演示地址（虚构）"}, {"name": "星星充电·陆家嘴站", "lng": 121.505, "lat": 31.24, "type": "third", "park": false, "guns": "16", "power": "180kW", "price": "1.78 元/度", "addr": "演示地址（虚构）"}, {"name": "星星充电·北1号站", "lng": 121.56, "lat": 31.26, "type": "third", "park": true, "guns": "6", "power": "180kW", "price": "1.78 元/度", "addr": "演示地址（虚构）"}, {"name": "星星充电·南2号站", "lng": 121.46, "lat": 31.21, "type": "third", "park": false, "guns": "8", "power": "180kW", "price": "1.78 元/度", "addr": "演示地址（虚构）"}, {"name": "国网·世博园区站", "lng": 121.487, "lat": 31.1855, "type": "third", "park": true, "guns": "24", "power": "100kW", "price": "1.55 元/度", "addr": "演示地址（虚构）"}, {"name": "国网·北1号站", "lng": 121.542, "lat": 31.2055, "type": "third", "park": true, "guns": "6", "power": "100kW", "price": "1.55 元/度", "addr": "演示地址（虚构）"}, {"name": "国网·南2号站", "lng": 121.442, "lat": 31.1555, "type": "third", "park": false, "guns": "8", "power": "100kW", "price": "1.55 元/度", "addr": "演示地址（虚构）"}, {"name": "云快充·中山公园站", "lng": 121.421, "lat": 31.22, "type": "third", "park": false, "guns": "12", "power": "120kW", "price": "1.70 元/度", "addr": "演示地址（虚构）"}, {"name": "云快充·北1号站", "lng": 121.476, "lat": 31.24, "type": "third", "park": true, "guns": "6", "power": "120kW", "price": "1.70 元/度", "addr": "演示地址（虚构）"}, {"name": "云快充·南2号站", "lng": 121.376, "lat": 31.19, "type": "third", "park": false, "guns": "8", "power": "120kW", "price": "1.70 元/度", "addr": "演示地址（虚构）"}, {"name": "小桔·虹桥枢纽站", "lng": 121.33, "lat": 31.192, "type": "third", "park": true, "guns": "30", "power": "120kW", "price": "1.60 元/度", "addr": "演示地址（虚构）"}, {"name": "小桔·北1号站", "lng": 121.385, "lat": 31.212, "type": "third", "park": true, "guns": "6", "power": "120kW", "price": "1.60 元/度", "addr": "演示地址（虚构）"}, {"name": "小桔·南2号站", "lng": 121.285, "lat": 31.162, "type": "third", "park": false, "guns": "8", "power": "120kW", "price": "1.60 元/度", "addr": "演示地址（虚构）"}, {"name": "万马·莘庄地铁站站", "lng": 121.39, "lat": 31.112, "type": "third", "park": false, "guns": "10", "power": "90kW", "price": "1.45 元/度", "addr": "演示地址（虚构）"}, {"name": "万马·北1号站", "lng": 121.445, "lat": 31.132, "type": "third", "park": true, "guns": "6", "power": "90kW", "price": "1.45 元/度", "addr": "演示地址（虚构）"}, {"name": "万马·南2号站", "lng": 121.345, "lat": 31.082, "type": "third", "park": false, "guns": "8", "power": "90kW", "price": "1.45 元/度", "addr": "演示地址（虚构）"}], "route": null};
+const RANGE_KM = DATA.rangeKm || 0;
+let map, markers = [], infoWindow, circle;
+const state = { free: true, third: true, park: false, reach: true };
+
+function km(p) {
+  const R = 6371, r = Math.PI / 180;
+  const [lng1, lat1, lng2, lat2] = [DATA.center[0], DATA.center[1], p.lng, p.lat];
+  const dLat = (lat2 - lat1) * r, dLng = (lng2 - lng1) * r;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*r)*Math.cos(lat2*r)*Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+function pinHtml(p) {
+  const cls = p.type === 'free' ? 'free' : 'third';
+  const txt = p.type === 'free' ? '鹏' : '合';
+  return `<div class="pin ${cls}" title="${p.name}"><span>${txt}</span>${p.park ? '<i class="fee"></i>' : ''}</div>`;
+}
+
+function infoHtml(p) {
+  return `<div class="iw"><h3>${p.name}</h3>
+    ${p.type === 'free' ? '<span class="badge b-free">自营/免费</span>' : '<span class="badge b-third">三方合作</span>'}
+    ${p.park ? '<span class="badge b-park">停车优惠</span>' : ''}
+    <div>桩数 ${p.guns || '-'} · ${p.power || '-'}</div>
+    <div>价格 ${p.price || '-'}</div>
+    <div>地址 ${p.addr || '-'}</div>
+    <div>距离中心 ${p._d.toFixed(1)} km</div>
+    <div style="margin-top:6px"><a href="https://uri.amap.com/marker?position=${p.lng},${p.lat}&name=${encodeURIComponent(p.name)}&coordinate=gaode" target="_blank">在高德打开</a></div>
+  </div>`;
+}
+
+function openInfo(p, m) {
+  if (!infoWindow) infoWindow = new AMap.InfoWindow({ offset: new AMap.Pixel(0, -26) });
+  infoWindow.setContent(infoHtml(p));
+  infoWindow.open(map, m.getPosition());
+}
+
+function currentList() {
+  return DATA.points
+    .filter(p => (p.type === 'free' ? state.free : state.third)
+              && (!state.park || p.park)
+              && (!state.reach || !RANGE_KM || p._d <= RANGE_KM))
+    .sort((a, b) => a._d - b._d);
+}
+
+function render(list) {
+  markers.forEach(m => m.setMap(null));
+  markers = list.map(p => {
+    const m = new AMap.Marker({
+      position: [p.lng, p.lat], content: pinHtml(p), offset: new AMap.Pixel(-12, -24),
+      zIndex: p.type === 'free' ? 120 : 110
+    });
+    m.on('click', () => openInfo(p, m));
+    m.setMap(map);
+    return m;
+  });
+  document.getElementById('stat').textContent =
+    `显示 ${list.length} / ${DATA.points.length} 个站点` + (RANGE_KM ? ` · 续航 ${RANGE_KM} km` : '');
+  document.getElementById('list').innerHTML = list.map((p, i) => `
+    <div class="item" data-i="${i}">
+      <div class="nm">${p.name}</div>
+      <div class="meta">
+        ${p.type === 'free' ? '<span class="badge b-free">自营</span>' : '<span class="badge b-third">三方</span>'}
+        ${p.park ? '<span class="badge b-park">停车优惠</span>' : ''}
+        ${p._d.toFixed(1)} km · ${p.guns || '-'} 桩 · ${p.price || ''}
+      </div>
+    </div>`).join('') || '<div style="padding:16px;color:#8a929e;font-size:12px">当前筛选条件下没有站点</div>';
+  document.querySelectorAll('.item').forEach(el => el.onclick = () => {
+    const p = list[+el.dataset.i];
+    map.setZoomAndCenter(15, [p.lng, p.lat]);
+    openInfo(p, markers[+el.dataset.i]);
+  });
+}
+
+window.renderRoute = function (route) {
+  if (!route || !route.polyline || !route.polyline.length) return;
+  new AMap.Polyline({ map, path: route.polyline, strokeColor: '#1a1a1a', strokeWeight: 5,
+                      strokeOpacity: .5, lineJoin: 'round', showDir: true }).setMap(map);
+  const s = route.polyline[0], e = route.polyline[route.polyline.length - 1];
+  const tag = (t, bg) => `<div style="background:${bg};color:#fff;padding:2px 7px;border-radius:5px;font-size:11px;font-weight:600">${t}</div>`;
+  new AMap.Marker({ map, position: s, offset: new AMap.Pixel(-16,-30), content: tag('起点','#1a1a1a') });
+  new AMap.Marker({ map, position: e, offset: new AMap.Pixel(-16,-30), content: tag('终点','#e0192a') });
+  const box = document.getElementById('routeBox');
+  box.style.display = 'block';
+  const via = route.via || [];
+  box.innerHTML = `<b>路线</b> ${(route.distanceKm||0).toFixed(0)} km · 沿线可停靠 <b>${via.length}</b> 个站点` +
+    (via.length ? '<div style="margin-top:6px;line-height:1.9">' + via.map(v =>
+      `<span class="badge b-free">+${Math.round(v.cumKm)}km</span>${v.name}${v.park ? ' <span class="badge b-park">停</span>' : ''}`
+    ).join('<br>') + '</div>' : '') +
+    `<div style="margin-top:8px;font-size:11.5px;color:#8a929e">路线为演示示意，可用于大致判断站点与路线的相对位置；导航请以高德实时规划为准。</div>`;
+  if (via.length) {
+    const w = route.polyline;
+  }
+};
+
+window.initMap = function () {
+  DATA.points.forEach(p => p._d = km(p));
+  map = new AMap.Map('map', { zoom: DATA.zoom || 11, center: DATA.center, viewMode: '2D', showLabel: true });
+  if (RANGE_KM) {
+    circle = new AMap.Circle({
+      map, center: DATA.center, radius: RANGE_KM * 1000,
+      strokeColor: '#00b578', strokeWeight: 1.5, strokeOpacity: .55,
+      fillColor: '#00b578', fillOpacity: .05, strokeStyle: 'dashed'
+    });
+  }
+  if (DATA.route) renderRoute(DATA.route);
+  render(currentList());
+  document.querySelectorAll('#filters .chip').forEach(el => {
+    el.onclick = () => {
+      const f = el.dataset.f;
+      state[f] = !state[f];
+      el.dataset.on = state[f] ? '1' : '0';
+      render(currentList());
+    };
+  });
+  // 让页面把筛选后的站点列表暴露给自动化脚本（一键分发到手机）
+  window.__viewport = () => ({ zoom: map.getZoom(), center: [map.getCenter().lng, map.getCenter().lat] });
+};
+initMap();
+</script></body></html>
