@@ -1,0 +1,734 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>小鹏充电站 · 三层视图</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;color:#111}
+#map{position:fixed;inset:0;background:#eef1f5}
+
+/* ---------- 顶部三层胶囊 ---------- */
+#tabs{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:30;display:flex;background:#fff;
+  border-radius:999px;padding:4px;box-shadow:0 6px 24px rgba(0,0,0,.14)}
+#tabs button{border:0;background:transparent;padding:9px 20px;border-radius:999px;font-size:14px;font-weight:600;
+  color:#6b7280;cursor:pointer;transition:.18s;white-space:nowrap}
+#tabs button.on{background:#111;color:#fff}
+
+/* ---------- 左侧浮层 ---------- */
+#sheet{position:fixed;top:70px;left:14px;width:360px;max-height:calc(100% - 90px);background:rgba(255,255,255,.98);
+  border-radius:16px;box-shadow:0 10px 40px rgba(0,0,0,.16);z-index:25;display:flex;flex-direction:column;overflow:hidden}
+#sheet .head{padding:14px 16px 10px;border-bottom:1px solid #f0f2f5}
+#sheet h2{margin:0 0 3px;font-size:15px}
+#sheet .hint{font-size:12px;color:#8a929e;line-height:1.5}
+.ctrl{padding:10px 12px;display:flex;flex-wrap:wrap;gap:6px;border-bottom:1px solid #f0f2f5}
+.pill{border:1px solid #e3e7ee;background:#fff;border-radius:999px;padding:6px 11px;font-size:12.5px;cursor:pointer;
+  color:#374151;transition:.15s;user-select:none;white-space:nowrap}
+.pill.on{background:#111;border-color:#111;color:#fff}
+.pill.g{border-color:#00b578;color:#00b578}
+.pill.g.on{background:#00b578;border-color:#00b578;color:#fff}
+.pill.o{border-color:#ff8f1f;color:#d8760a}
+.pill.o.on{background:#ff8f1f;border-color:#ff8f1f;color:#fff}
+select,input[type=text]{border:1px solid #e3e7ee;border-radius:9px;padding:7px 9px;font-size:12.5px;background:#fff;
+  color:#111;outline:none;font-family:inherit}
+select:focus,input[type=text]:focus{border-color:#111}
+.row{display:flex;gap:6px;width:100%}
+.row select,.row input{flex:1;min-width:0}
+
+#list{overflow:auto;flex:1;min-height:80px}
+.card{padding:11px 14px;border-bottom:1px solid #f4f6f9;cursor:pointer;position:relative;transition:background .12s}
+.card:hover{background:#f8fafc}
+.card.sel{background:#f0f7ff}
+.card .nm{font-size:13px;font-weight:650;line-height:1.4;padding-right:52px}
+.card .tags{margin-top:5px;display:flex;flex-wrap:wrap;gap:4px}
+.tag{font-size:10.5px;padding:2px 6px;border-radius:5px;font-weight:600}
+.t-free{background:#e6f8f0;color:#00875a}
+.t-third{background:#eaf1ff;color:#2b5fd9}
+.t-park{background:#fff3e2;color:#c96a00}
+.t-gray{background:#f2f4f7;color:#6b7280}
+.card .meta{font-size:11.5px;color:#8a929e;margin-top:5px;line-height:1.5}
+.card .dist{position:absolute;right:12px;top:11px;font-size:12.5px;font-weight:700;color:#111}
+.card .dist small{font-weight:400;color:#8a929e;font-size:10.5px}
+.empty{padding:26px 16px;text-align:center;color:#9aa3af;font-size:12.5px;line-height:1.8}
+#foot{border-top:1px solid #f0f2f5;padding:10px 12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.go{flex:1;background:#111;color:#fff;border:0;border-radius:10px;padding:11px;font-size:13px;font-weight:650;cursor:pointer}
+.go:disabled{background:#dfe3e9;color:#98a0ac;cursor:not-allowed}
+.link{font-size:11.5px;color:#3d7eff;text-decoration:none;padding:6px 2px}
+
+/* ---------- 巡航条（沿线层） ---------- */
+#cruise{display:none;padding:10px 14px 12px;border-top:1px solid #f0f2f5;background:#fbfcfe}
+#cruise .ttl{font-size:11.5px;color:#8a929e;display:flex;justify-content:space-between;margin-bottom:6px}
+#cruise input[type=range]{width:100%;accent-color:#111}
+#cruise .now{font-size:12px;color:#374151;margin-top:4px}
+
+/* ---------- 地图图钉 ---------- */
+.pin{position:relative;width:26px;height:26px;border-radius:50% 50% 50% 4px;transform:rotate(-45deg);border:2px solid #fff;
+  box-shadow:0 2px 7px rgba(0,0,0,.32);display:flex;align-items:center;justify-content:center;cursor:pointer}
+.pin span{transform:rotate(45deg);font-size:11px;color:#fff;font-weight:700;line-height:1}
+.pin.free{background:#00b578} .pin.third{background:#3d7eff}
+.pin .fee{position:absolute;right:-5px;top:-5px;width:9px;height:9px;border-radius:50%;background:#ff8f1f;border:1.5px solid #fff}
+.pin.dim{opacity:.32}
+.pin.big{transform:rotate(-45deg) scale(1.25);z-index:9}
+.iw{font-size:12.5px;line-height:1.7;min-width:210px}
+.iw h3{font-size:13.5px;margin:0 0 5px}
+.iw a{color:#3d7eff}
+.legend{position:fixed;right:14px;bottom:14px;background:rgba(255,255,255,.96);border-radius:11px;padding:9px 12px;
+  font-size:11.5px;box-shadow:0 4px 18px rgba(0,0,0,.12);z-index:15;line-height:1.9;color:#374151;cursor:pointer}
+.legend.collapsed{width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;font-size:15px;line-height:1;border-radius:50%}
+.legend.collapsed div{display:none}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
+
+@media (max-width:820px){
+  #tabs{top:10px;width:calc(100% - 24px);justify-content:space-between}
+  #tabs button{padding:9px 0;flex:1;font-size:13px}
+  #sheet{top:auto;bottom:0;left:0;width:100%;max-height:56%;border-radius:16px 16px 0 0}
+  .legend{display:none}
+}
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div id="tabs">
+  <button data-lv="near" class="on">① 附近</button>
+  <button data-lv="city">② 全城</button>
+  <button data-lv="route">③ 沿路线</button>
+</div>
+
+<div id="sheet">
+  <div class="head">
+    <h2 id="title">附近的充电站</h2>
+    <div class="hint" id="hint">正在定位…</div>
+  </div>
+
+  <!-- 通用筛选 -->
+  <div class="ctrl">
+    <div class="pill g on" data-f="free">小鹏免费权益</div>
+    <div class="pill on" data-f="third">第三方合作</div>
+    <div class="pill o" data-f="park">仅看免费停车</div>
+  </div>
+
+  <!-- ① 附近 -->
+  <div class="ctrl" id="ctrl-near">
+    <div class="pill" data-r="3">3 km</div>
+    <div class="pill on" data-r="5">5 km</div>
+    <div class="pill" data-r="10">10 km</div>
+    <div class="pill" data-r="20">20 km</div>
+    <div class="pill" data-r="0">不限</div>
+  </div>
+
+  <!-- ② 全城 -->
+  <div class="ctrl" id="ctrl-city" style="display:none">
+    <div class="row">
+      <select id="selCity"></select>
+      <select id="selDist"><option value="">全部区县</option></select>
+    </div>
+  </div>
+
+  <!-- ③ 沿路线 -->
+  <div class="ctrl" id="ctrl-route" style="display:none">
+    <div class="row">
+      <select id="selFrom"></select>
+      <select id="selTo"></select>
+    </div>
+    <div class="hint" id="routeHint" style="width:100%;font-size:11.5px;color:#8a929e;margin-top:2px">
+      选择起终点，自动套用高德真实驾车路线
+    </div>
+  </div>
+
+  <div id="list"></div>
+
+  <div id="cruise">
+    <div class="ttl"><span>行程进度</span><span id="cruiseKm">0 / 0 km</span></div>
+    <input type="range" id="cruiseRange" min="0" max="100" value="0" step="0.5">
+    <div class="now" id="cruiseNow">拖到任意位置，自动只显示该位置附近的站</div>
+  </div>
+
+  <div id="foot">
+    <button class="go" id="btnGo">把选中站点发到高德导航</button>
+    <a class="link" id="btnOpen" target="_blank" style="display:none">在高德打开</a>
+  </div>
+</div>
+
+<div class="legend" id="legend"><span class="lg-i" style="display:none">ⓘ</span>
+  <div><i style="background:#00b578"></i>小鹏免费权益（自营）</div>
+  <div><i style="background:#3d7eff"></i>第三方合作站</div>
+  <div><i style="background:#ff8f1f"></i>角标 = 免费停车</div>
+</div>
+<script>
+document.getElementById('legend').onclick=function(){
+  var l=this;l.classList.toggle('collapsed');
+  l.querySelector('.lg-i').style.display=l.classList.contains('collapsed')?'inline':'none';
+};
+</script>
+
+<script src="__AMAP_JS__"></script>
+<script>
+const DATA = __DATA__;
+const ALL = DATA.points.map((p, i) => ({...p, id: i}));
+
+/* ================= 状态 ================= */
+const S = {
+  level: 'near',
+  free: true, third: true, park: false,
+  radius: 5,
+  me: null,               // [lng, lat]
+  city: DATA.cities[0].name,
+  dist: '',
+  from: '', to: '',
+  route: null,            // {polyline, cum, km, via}
+  nearRouteKm: 5,
+  selected: null,
+  list: []
+};
+
+/* ================= 工具 ================= */
+const R = 6371, RAD = Math.PI / 180;
+function km(a, b) {
+  const dLat = (b[1] - a[1]) * RAD, dLng = (b[0] - a[0]) * RAD;
+  const x = Math.sin(dLat / 2) ** 2 + Math.cos(a[1] * RAD) * Math.cos(b[1] * RAD) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(x));
+}
+function distToSeg(p, a, b) {
+  const kx = 111 * Math.cos(p[1] * RAD);
+  const px = (p[0] - a[0]) * kx, py = (p[1] - a[1]) * 111;
+  const bx = (b[0] - a[0]) * kx, by = (b[1] - a[1]) * 111;
+  const L2 = bx * bx + by * by;
+  if (!L2) return [Math.hypot(px, py), 0];
+  let t = (px * bx + py * by) / L2;
+  t = Math.max(0, Math.min(1, t));
+  return [Math.hypot(px - t * bx, py - t * by), t];
+}
+const cityOf = n => DATA.cities.find(c => c.name === n);
+
+/* ================= 地图 ================= */
+let map, infoWin, circle, meMarker, routeLine;
+const pins = new Map();
+
+function initMap() {
+  const c = cityOf(S.city);
+  map = new AMap.Map('map', { zoom: c.zoom, center: c.center, viewMode: '2D', showLabel: true });
+  infoWin = new AMap.InfoWindow({ offset: new AMap.Pixel(0, -28), isCustom: false });
+  locateMe();
+}
+
+/* ---------- 定位（浏览器定位失败则退回城市中心） ---------- */
+function nearestCity(pt) {
+  let best = DATA.cities[0], bd = 1e9;
+  DATA.cities.forEach(c => { const d = km(pt, c.center); if (d < bd) { bd = d; best = c; } });
+  return best;
+}
+
+function locateMe() {
+  const fallback = () => {
+    S.me = cityOf(S.city).center;
+    setHint('未获取到精确定位，已用城市中心代替（可拖动地图后点「以地图中心为起点」）');
+    drawMe(); refresh();
+  };
+  if (!navigator.geolocation) return fallback();
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      S.me = [pos.coords.longitude, pos.coords.latitude];
+      // 定位成功后把「全城」层默认切到用户所在城市，省得手动选
+      const near = nearestCity(S.me);
+      if (near && near.name !== S.city) {
+        S.city = near.name;
+        const sel = document.getElementById('selCity');
+        if (sel) sel.value = near.name;
+        const sd = document.getElementById('selDist');
+        if (sd) { sd.value = ''; }
+      }
+      drawMe(); refresh();
+    },
+    fallback, { enableHighAccuracy: false, timeout: 6000, maximumAge: 60000 }
+  );
+}
+
+function drawMe() {
+  if (meMarker) meMarker.setMap(null);
+  meMarker = new AMap.Marker({
+    map, position: S.me, zIndex: 200,
+    content: '<div style="width:14px;height:14px;border-radius:50%;background:#1a73e8;border:3px solid #fff;box-shadow:0 0 0 4px rgba(26,115,232,.25)"></div>',
+    offset: new AMap.Pixel(-7, -7)
+  });
+  if (circle) circle.setMap(null);
+  circle = new AMap.Circle({
+    map, center: S.me, radius: (S.radius || 5) * 1000,
+    strokeColor: '#1a73e8', strokeWeight: 1.5, strokeOpacity: .6, fillColor: '#1a73e8', fillOpacity: .06, strokeStyle: 'dashed'
+  });
+}
+
+/* ================= 路线 ================= */
+function buildRoute(fromName, toName) {
+  const key = fromName + '→' + toName;
+  const preset = (DATA.routes || {})[key];
+  let poly;
+  if (preset && preset.polyline && preset.polyline.length > 1) {
+    poly = preset.polyline;                      // 高德真实驾车路线（含高速）
+  } else {
+    const a = cityOf(fromName).center, b = cityOf(toName).center;
+    const mid1 = [(a[0] * 2 + b[0]) / 3, (a[1] * 2 + b[1]) / 3 + 0.18];
+    const mid2 = [(a[0] + b[0] * 2) / 3, (a[1] + b[1] * 2) / 3 - 0.10];
+    poly = [a, mid1, mid2, b];                   // 没有预置路线时用示意线
+  }
+  const cum = [0];
+  for (let i = 1; i < poly.length; i++) cum.push(cum[i - 1] + km(poly[i - 1], poly[i]));
+  return { polyline: poly, cum, km: cum[cum.length - 1], preset: !!preset, roads: preset && preset.roads };
+}
+
+/* 站到路线的最近距离 & 对应里程 */
+function projectToRoute(p) {
+  const { polyline, cum } = S.route;
+  let best = [1e9, 0];
+  for (let i = 0; i < polyline.length - 1; i++) {
+    const [d, t] = distToSeg([p.lng, p.lat], polyline[i], polyline[i + 1]);
+    if (d < best[0]) best = [d, cum[i] + t * (cum[i + 1] - cum[i])];
+  }
+  return { off: best[0], along: best[1] };
+}
+
+/* 把某个点放到「用户真正能看见的那块区域」中心。
+   手机端下方被面板遮住约 58%，必须把地图中心往南挪，内容才不会被压在面板底下。 */
+function focusPoint(zoom, pt) {
+  if (window.innerWidth >= 820) { map.setZoomAndCenter(zoom, pt, true); return; }
+  const visH = window.innerHeight * 0.42;
+  const dy = (window.innerHeight / 2) - (visH / 2);                  // 需要上移的像素
+  const degPerPx = 360 / (256 * Math.pow(2, zoom));
+  const latShift = dy * degPerPx * Math.cos(pt[1] * Math.PI / 180);  // 往南挪
+  map.setZoomAndCenter(zoom, [pt[0], pt[1] - latShift], true);
+}
+
+/* 视野适配：交给高德自己算（setFitView 最稳），再用容器偏移把内容让到可见区 */
+function fitAll() {
+  const objs = [];
+  if (routeLine) objs.push(routeLine);
+  const shown = new Set((S.list || []).map(p => p.id));
+  pins.forEach((m, id) => { if (shown.has(id)) objs.push(m); });
+  if (!objs.length) return;
+
+  const mobile = window.innerWidth < 820;
+
+  if (mobile) {
+    // 手机端：面板占了下方约 56%，只剩顶部一块可见。先算内容包围盒（米），
+    // 再用「可见像素宽/高」反推该用哪个 zoom，最后把包围盒中心放到可见区中心。
+    const visH = window.innerHeight * 0.42;      // 顶部可见条带高度
+    const visW = window.innerWidth;
+    let minLng = 1e9, maxLng = -1e9, minLat = 1e9, maxLat = -1e9;
+    objs.forEach(o => {
+      const raw = o.getPath ? o.getPath() : [o.getPosition()];
+      (raw || []).forEach(pt => {
+        const lng = pt.getLng ? pt.getLng() : (pt[0] !== undefined ? pt[0] : pt.lng);
+        const lat = pt.getLat ? pt.getLat() : (pt[1] !== undefined ? pt[1] : pt.lat);
+        if (typeof lng !== 'number' || typeof lat !== 'number') return;
+        if (lng < minLng) minLng = lng; if (lng > maxLng) maxLng = lng;
+        if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat;
+      });
+    });
+    if (minLng > maxLng) return;
+
+    const cLng = (minLng + maxLng) / 2, cLat = (minLat + maxLat) / 2;
+    const dLng = Math.max(maxLng - minLng, 0.005) * 1.12;
+    const dLat = Math.max(maxLat - minLat, 0.005) * 1.12;
+
+    // Web 墨卡托：每像素经度 = 360 / (256 * 2^z)，每像素纬度需乘 cos(lat)
+    const zx = Math.log2(visW / (dLng * 256 / 360)) ;
+    const zy = Math.log2(visH * Math.cos(cLat * Math.PI / 180) / (dLat * 256 / 360));
+    const z = Math.max(7, Math.min(15, Math.floor(Math.min(zx, zy))));
+
+    // 内容要落在屏幕上方那条可见带里（面板在下方遮住约 58%）。
+    // 标定结果：纬度越大，屏幕 y 越小（内容越靠上）。可见带中心 y = visH/2，
+    // 比地图中心 y = H/2 高 dy 像素；要让内容上移 dy 像素，地图中心须往南移 dy 像素对应的纬度。
+    const dy = (window.innerHeight / 2) - (visH / 2);          // 像素（正值）
+    const degPerPx = 360 / (256 * Math.pow(2, z));             // 当前级别每像素经度
+    const latShift = dy * degPerPx * Math.cos(cLat * Math.PI / 180);   // 往南移 → 减
+
+    // 第三个参数 immediate=true：必须同步跳转。否则高德会做渐进式缩放动画，
+    // 连续快速 resize 时会把视野拖到中间态（长距离跳转尤其明显）。
+    map.setZoomAndCenter(z, [+cLng.toFixed(6), +(cLat - latShift).toFixed(6)], true);
+    return;
+  }
+
+  // 桌面端：左侧面板 380px，交给高德自己算最稳
+  map.setFitView(objs, true, [10, 10, 10, 390], 15);
+}
+
+function drawRoute() {
+  if (routeLine) { map.remove(routeLine); routeLine = null; }
+  if (!S.route) return;
+  routeLine = new AMap.Polyline({
+    map, path: S.route.polyline, strokeColor: '#111', strokeWeight: 6, strokeOpacity: .55,
+    strokeStyle: 'solid', lineJoin: 'round', showDir: true, zIndex: 50
+  });
+  const tag = (t, bg) => `<div style="background:${bg};color:#fff;padding:2px 7px;border-radius:5px;font-size:11px;font-weight:600">${t}</div>`;
+  new AMap.Marker({ map, position: S.route.polyline[0], content: tag(S.from, '#111'), offset: new AMap.Pixel(-14, -30), zIndex: 60 });
+  const last = S.route.polyline[S.route.polyline.length - 1];
+  new AMap.Marker({ map, position: last, content: tag(S.to, '#e0192a'), offset: new AMap.Pixel(-14, -30), zIndex: 60 });
+  fitAll();
+}
+
+/* ================= 筛选 ================= */
+function passFilter(p) {
+  if (p.type === 'free' && !S.free) return false;
+  if (p.type === 'third' && !S.third) return false;
+  if (S.park && !p.park) return false;
+  return true;
+}
+
+function computeList() {
+  let list = ALL.filter(passFilter);
+  if (S.level === 'near') {
+    list = list.map(p => ({ ...p, d: km(S.me, [p.lng, p.lat]) }));
+    if (S.radius) list = list.filter(p => p.d <= S.radius);
+    list.sort((a, b) => a.d - b.d);
+  } else if (S.level === 'city') {
+    list = list.filter(p => p.city === S.city && (!S.dist || (p.addr || '').startsWith(S.dist) || (p.addr || '').includes(S.dist)));
+    const c = cityOf(S.city).center;
+    list = list.map(p => ({ ...p, d: km(c, [p.lng, p.lat]) })).sort((a, b) => a.d - b.d);
+  } else {
+    if (!S.route) return [];
+    const prog = +document.getElementById('cruiseRange').value / 100;
+    const at = S.route.km * prog;
+    list = list.map(p => { const r = projectToRoute(p); return { ...p, ...r, d: r.off }; })
+               .filter(p => p.off <= S.nearRouteKm);
+    // 巡航模式：默认只看起点前 30km 起、每段 60km 的「下一个停靠点」，拖滑块时看当前位置前后 25km
+    if (prog > 0) {
+      const win = 25;
+      list = list.filter(p => Math.abs(p.along - at) <= win)
+                 .sort((a, b) => Math.abs(a.along - at) - Math.abs(b.along - at));
+    } else {
+      // 默认视图 = 「这条线怎么补能」：按里程均分 3 段，每段挑最顺路的 1 个免费站
+      const n = 3, kmTotal = S.route.km, picked = [];
+      for (let k = 1; k <= n; k++) {
+        const lo = kmTotal * (k - 1) / n, hi = kmTotal * k / n;
+        const cand = list.filter(p => p.along >= lo && p.along <= hi && !picked.includes(p))
+                         .sort((a, b) => (a.off + (a.park ? 0 : 1.2) + (a.type === 'third' ? 6 : 0))
+                                       - (b.off + (b.park ? 0 : 1.2) + (b.type === 'third' ? 6 : 0)));
+        if (cand[0]) picked.push(cand[0]);
+      }
+      list = picked;
+    }
+  }
+  return list;
+}
+
+/* ================= 渲染 ================= */
+function renderPins(list) {
+  pins.forEach(m => m.setMap(null));
+  pins.clear();
+  const keep = new Set(list.map(p => p.id));
+  ALL.forEach(p => {
+    const isIn = keep.has(p.id);
+    const cls = (p.type === 'free' ? 'free' : 'third') + (isIn ? '' : ' dim');
+    const m = new AMap.Marker({
+      position: [p.lng, p.lat], zIndex: isIn ? (p.id === S.selected ? 180 : 100) : 60,
+      content: `<div class="pin ${cls}"><span>${p.type === 'free' ? '鹏' : '合'}</span>${p.park ? '<i class="fee"></i>' : ''}</div>`,
+      offset: new AMap.Pixel(-13, -26)
+    });
+    m.on('click', () => { if (isIn) select(p.id); });
+    m.setMap(map);
+    pins.set(p.id, m);
+  });
+}
+
+function renderList(list) {
+  const el = document.getElementById('list');
+  if (!list.length) {
+    el.innerHTML = `<div class="empty">这个条件下没有站点<br>试试放宽距离或打开「第三方合作」</div>`;
+    return;
+  }
+  el.innerHTML = list.map(p => `
+    <div class="card ${p.id === S.selected ? 'sel' : ''}" data-id="${p.id}">
+      <div class="dist">${(p.d || 0).toFixed(1)}<small> km</small></div>
+      <div class="nm">${p.name}</div>
+      <div class="tags">
+        ${p.type === 'free' ? '<span class="tag t-free">免费权益</span>' : '<span class="tag t-third">三方</span>'}
+        ${p.park ? '<span class="tag t-park">免费停车</span>' : ''}
+        ${p.guns ? `<span class="tag t-gray">${p.guns} 桩</span>` : ''}
+        ${p.price ? `<span class="tag t-gray">${p.price}</span>` : ''}
+        ${S.level === 'route' ? `<span class="tag t-gray">+${Math.round(p.along)}km</span>` : ''}
+      </div>
+      <div class="meta">${p.addr || ''}</div>
+    </div>`).join('');
+  el.querySelectorAll('.card').forEach(c => c.onclick = () => select(+c.dataset.id));
+}
+
+function openInfo(p) {
+  const a = `https://uri.amap.com/marker?position=${p.lng},${p.lat}&name=${encodeURIComponent(p.name)}&coordinate=gaode&callnative=1&src=charge_map`;
+  infoWin.setContent(`<div class="iw"><h3>${p.name}</h3>
+    ${p.type === 'free' ? '<span class="tag t-free">免费权益</span>' : '<span class="tag t-third">三方合作</span>'}
+    ${p.park ? '<span class="tag t-park">免费停车</span>' : ''}
+    <div>${p.guns || '-'} 个桩 · ${p.power || '-'} · ${p.price || '-'}</div>
+    <div>${p.addr || ''}</div>
+    <div style="margin-top:6px"><a href="${a}" target="_blank">在高德地图打开 →</a></div></div>`);
+  infoWin.open(map, [p.lng, p.lat]);
+}
+
+/* ================= 交互 ================= */
+function select(id) {
+  S.selected = id;
+  const p = ALL.find(x => x.id === id);
+  if (!p) return;
+  map.setZoomAndCenter(Math.max(map.getZoom(), 14), [p.lng, p.lat], true);
+  openInfo(p);
+  renderList(S.list);
+  // 每个站都可以单独发到高德
+  document.getElementById('btnGo').disabled = false;
+  document.getElementById('btnGo').textContent = '把「' + p.name.slice(0, 12) + '」发到高德';
+  const lk = document.getElementById('btnOpen');
+  lk.style.display = 'inline';
+  lk.href = `https://uri.amap.com/marker?position=${p.lng},${p.lat}&name=${encodeURIComponent(p.name)}&coordinate=gaode&callnative=1&src=charge_map`;
+}
+
+function setHint(t) { document.getElementById('hint').textContent = t; }
+
+function refresh() {
+  S.list = computeList();
+  renderPins(S.list);
+  renderList(S.list);
+
+  const free = S.list.filter(p => p.type === 'free').length;
+  const park = S.list.filter(p => p.park).length;
+  if (S.level === 'near') {
+    document.getElementById('title').textContent = `附近的充电站`;
+    setHint(`以当前位置为圆心 ${S.radius || '不限'} km 内 · 共 ${S.list.length} 个，其中免费权益 ${free} 个、免费停车 ${park} 个`);
+  } else if (S.level === 'city') {
+    document.getElementById('title').textContent = S.city + ' · 全市充电站';
+    setHint(`共 ${S.list.length} 个，其中免费权益 ${free} 个、免费停车 ${park} 个`);
+  } else {
+    document.getElementById('title').textContent = `${S.from} → ${S.to} 沿途`;
+    setHint(`全程约 ${S.route.km.toFixed(0)} km（${S.route.preset ? '高德实际路线' : '示意直线'}）· 推荐 ${S.list.length} 个停靠站`);
+  }
+
+  // 底部按钮：附近/全城 = 发给最近的免费站；沿线 = 发给全部停靠站
+  const go = document.getElementById('btnGo');
+  if (!S.selected) {
+    go.disabled = !S.list.length;
+    if (S.level === 'route') {
+      go.textContent = `把 ${S.list.length} 个推荐停靠站加入高德途经点`;
+    } else {
+      go.textContent = S.list[0] ? `发「${S.list[0].name.slice(0, 12)}」到高德` : '没有可发送的站点';
+    }
+    document.getElementById('btnOpen').style.display = 'none';
+  }
+  if (S.level === 'route') {
+    document.getElementById('list').scrollTop = 0;
+  }
+}
+
+/* ---------- 高德导航链接 ---------- */
+function amapNav(start, end, vias, sname, dname) {
+  const q = new URLSearchParams({
+    slon: start[0].toFixed(6), slat: start[1].toFixed(6), sname: sname || '我的位置',
+    dlon: end[0].toFixed(6), dlat: end[1].toFixed(6), dname: dname || '目的地',
+    t: '0', sourceApplication: 'charge_map'
+  });
+  if (vias.length) {
+    q.set('vian', String(vias.length));
+    q.set('vialons', vias.map(v => v.lng.toFixed(6)).join('|'));
+    q.set('vialats', vias.map(v => v.lat.toFixed(6)).join('|'));
+    q.set('vianames', vias.map(v => v.name.replace(/[|&?#]/g, '·').slice(0, 16)).join('|'));
+  }
+  return 'amapuri://route/plan/?' + q.toString();
+}
+
+/* 沿线：按里程均分挑 N 个最顺路的免费站 */
+function pickStops(n) {
+  const kmTotal = S.route.km;
+  const pool = ALL.filter(p => p.type === 'free' && (!S.park || p.park))
+    .map(p => { const r = projectToRoute(p); return { ...p, ...r }; })
+    .filter(p => p.off <= 8);
+  const out = [];
+  for (let k = 1; k <= n; k++) {
+    const lo = kmTotal * (k - 1) / n, hi = kmTotal * k / n;
+    const cand = pool.filter(p => p.along >= lo && p.along <= hi && !out.includes(p))
+      .sort((a, b) => (a.off + (a.park ? 0 : 1.2)) - (b.off + (b.park ? 0 : 1.2)));
+    if (cand[0]) out.push(cand[0]);
+  }
+  return out;
+}
+
+/* ================= 事件绑定 ================= */
+function bind() {
+  // 三层切换
+  document.querySelectorAll('#tabs button').forEach(function (b) {
+    b.onclick = function () {
+    document.querySelectorAll('#tabs button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+    S.level = b.dataset.lv;
+    S.selected = null;
+    document.getElementById('btnOpen').style.display = 'none';
+    document.getElementById('cruiseRange').value = 0;
+    document.getElementById('ctrl-near').style.display = S.level === 'near' ? 'flex' : 'none';
+    document.getElementById('ctrl-city').style.display = S.level === 'city' ? 'flex' : 'none';
+    document.getElementById('ctrl-route').style.display = S.level === 'route' ? 'flex' : 'none';
+    document.getElementById('cruise').style.display = S.level === 'route' ? 'block' : 'none';
+
+    if (S.level === 'near') {
+      if (circle) circle.show();
+      if (meMarker) meMarker.show();
+      focusPoint(12, S.me);
+    } else if (S.level === 'city') {
+      if (circle) circle.hide();
+      if (meMarker) meMarker.hide();
+      const c = cityOf(S.city);
+      focusPoint(c.zoom, c.center);
+    } else {
+      if (circle) circle.hide();
+      if (meMarker) meMarker.hide();
+      S.from = document.getElementById('selFrom').value;
+      S.to = document.getElementById('selTo').value;
+      S.route = buildRoute(S.from, S.to);
+      drawRoute();
+      document.getElementById('cruiseRange').value = 0;
+      document.getElementById('cruiseKm').textContent = `0 / ${S.route.km.toFixed(0)} km`;
+      document.getElementById('cruiseNow').textContent = '拖到任意位置，自动只显示该位置附近的站';
+    }
+    refresh();
+    if (S.level === 'route') setTimeout(fitAll, 120);
+    };
+  });
+
+  // 权益 / 停车筛选
+  document.querySelectorAll('.ctrl .pill[data-f]').forEach(el => el.onclick = () => {
+    const f = el.dataset.f;
+    S[f] = !S[f];
+    if (!S.free && !S.third) { S[f] = true; return; }   // 两类至少留一个
+    el.classList.toggle('on', S[f]);
+    refresh();
+  });
+
+  // 半径
+  document.querySelectorAll('#ctrl-near .pill[data-r]').forEach(el => el.onclick = () => {
+    document.querySelectorAll('#ctrl-near .pill[data-r]').forEach(x => x.classList.remove('on'));
+    el.classList.add('on');
+    S.radius = +el.dataset.r;
+    if (circle) {
+      if (S.radius) { circle.setRadius(S.radius * 1000); circle.show(); }
+      else circle.hide();
+    }
+    refresh();
+  });
+
+  // 城市
+  const selCity = document.getElementById('selCity');
+  selCity.innerHTML = DATA.cities.map(c => `<option>${c.name}</option>`).join('');
+  selCity.value = S.city;          // 定位可能早于这里完成，补一次同步
+  const selDist = document.getElementById('selDist');
+
+  // 从地址里抽区县（"上城区延安路…" → "上城区"），建成下拉选项
+  function rebuildDistricts() {
+    const set = new Set();
+    ALL.filter(p => p.city === S.city).forEach(p => {
+      const m = (p.addr || '').match(/^([\u4e00-\u9fa5]{2,4}(?:区|县|市))/);
+      if (m) set.add(m[1]);
+    });
+    selDist.innerHTML = '<option value="">全部区县</option>' +
+      [...set].sort().map(d => `<option>${d}</option>`).join('');
+    selDist.style.display = set.size ? '' : 'none';
+    S.dist = '';
+  }
+  rebuildDistricts();
+  selDist.onchange = () => { S.dist = selDist.value; refresh(); };
+
+  selCity.onchange = () => {
+    S.city = selCity.value;
+    const c = cityOf(S.city);
+    map.setZoomAndCenter(c.zoom, c.center, true);
+    rebuildDistricts();
+    refresh();
+  };
+
+  // 沿途线路
+  const names = DATA.cities.map(c => c.name);
+  const selFrom = document.getElementById('selFrom'), selTo = document.getElementById('selTo');
+
+  // 从预置路线里抽出有真实数据的城市，排在最前面
+  const routeKeys = Object.keys(DATA.routes || {});
+  const fromSet = new Set(routeKeys.map(k => k.split('→')[0]));
+  const toSet = new Set(routeKeys.flatMap(k => k.split('→')[1].split(',')));
+  const order = c => (fromSet.has(c) ? 0 : 2);
+  const froms = [...names].sort((a, b) => order(a) - order(b));
+  const tos = n => [...names].filter(c => c !== n)
+      .sort((a, b) => ((DATA.routes[n + '→' + a] ? 0 : 2) - (DATA.routes[n + '→' + b] ? 0 : 2)));
+
+  selFrom.innerHTML = froms.map(n => `<option>${n}</option>`).join('');
+  // 默认拿第一条预置路线
+  if (routeKeys.length) {
+    const [f0, t0] = routeKeys[0].split('→');
+    selFrom.value = f0;
+    selTo.innerHTML = tos(f0).map(n => `<option>${n}</option>`).join('');
+    selTo.value = t0;
+  } else {
+    selTo.innerHTML = tos(froms[0]).map(n => `<option>${n}</option>`).join('');
+  }
+  S.from = selFrom.value; S.to = selTo.value;
+  selFrom.onchange = () => {
+    const f = selFrom.value;
+    selTo.innerHTML = tos(f).map(n => `<option>${n}</option>`).join('');
+    selTo.value = selTo.options[0].value;
+    S.from = f; S.to = selTo.value;
+    if (S.from === S.to) { S.to = [...selTo.options].map(o => o.value).find(v => v !== S.from); selTo.value = S.to; }
+    S.route = buildRoute(S.from, S.to);
+    drawRoute();
+    document.getElementById('cruiseRange').value = 0;
+    document.getElementById('cruiseKm').textContent = `0 / ${S.route.km.toFixed(0)} km`;
+    refresh();
+    setTimeout(fitAll, 120);
+  };
+  selTo.onchange = () => {
+    S.from = selFrom.value; S.to = selTo.value;
+    if (S.from === S.to) { S.to = names.find(n => n !== S.from); selTo.value = S.to; }
+    S.route = buildRoute(S.from, S.to);
+    drawRoute();
+    document.getElementById('cruiseRange').value = 0;
+    document.getElementById('cruiseKm').textContent = `0 / ${S.route.km.toFixed(0)} km`;
+    refresh();
+    setTimeout(fitAll, 120);
+  };
+
+  // 巡航滑块
+  const cr = document.getElementById('cruiseRange');
+  cr.oninput = () => {
+    const prog = +cr.value / 100;
+    S.selected = null;
+    document.getElementById('btnOpen').style.display = 'none';
+    refresh();
+    document.getElementById('cruiseKm').textContent = `${(S.route.km * prog).toFixed(0)} / ${S.route.km.toFixed(0)} km`;
+    document.getElementById('cruiseNow').textContent = prog > 0
+      ? `当前位置前后 25 km：${S.list.length} 个站` : '拖到任意位置，自动只显示该位置附近的站';
+  };
+
+  // 发送到高德
+  document.getElementById('btnGo').onclick = () => {
+    let url;
+    if (S.selected != null) {
+      const p = ALL.find(x => x.id === S.selected);
+      url = `https://uri.amap.com/marker?position=${p.lng},${p.lat}&name=${encodeURIComponent(p.name)}&coordinate=gaode&callnative=1&src=charge_map`;
+    } else if (S.level === 'route') {
+      const stops = pickStops(3);
+      if (!stops.length) return alert('这条线路上没找到顺路的免费站');
+      url = amapNav(S.route.polyline[0], S.route.polyline[S.route.polyline.length - 1],
+                    stops, S.from, S.to);
+    } else if (S.list[0]) {
+      const p = S.list[0];
+      url = `https://uri.amap.com/marker?position=${p.lng},${p.lat}&name=${encodeURIComponent(p.name)}&coordinate=gaode&callnative=1&src=charge_map`;
+    } else return;
+
+    // 手机：直接唤起高德 App；桌面：复制链接
+    if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+      location.href = url;
+    } else {
+      navigator.clipboard?.writeText(url);
+      alert('链接已复制，发到手机上打开即可唤起高德地图\n\n' + url.slice(0, 120) + '…');
+    }
+  };
+}
+
+/* ================= 启动 ================= */
+initMap();
+bind();
+S.route = buildRoute(S.from, S.to);
+</script>
+</body>
+</html>

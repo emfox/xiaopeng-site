@@ -1,0 +1,14 @@
+# 高德 App 直达链接（在手机浏览器打开，或生成二维码扫）
+
+小鹏超充·南2号站  https://uri.amap.com/marker?position=121.47,31.271&name=%E5%B0%8F%E9%B9%8F%E8%B6%85%E5%85%85%C2%B7%E5%8D%972%E5%8F%B7%E7%AB%99&src=xpeng2amap&coordinate=gaode&callnative=1
+小鹏超充·北1号站  https://uri.amap.com/marker?position=121.5112,31.2036&name=%E5%B0%8F%E9%B9%8F%E8%B6%85%E5%85%85%C2%B7%E5%8C%971%E5%8F%B7%E7%AB%99&src=xpeng2amap&coordinate=gaode&callnative=1
+小鹏超充·徐汇滨江站  https://uri.amap.com/marker?position=121.4562,31.1836&name=%E5%B0%8F%E9%B9%8F%E8%B6%85%E5%85%85%C2%B7%E5%BE%90%E6%B1%87%E6%BB%A8%E6%B1%9F%E7%AB%99&src=xpeng2amap&coordinate=gaode&callnative=1
+小鹏超充·南2号站  https://uri.amap.com/marker?position=121.545,31.23&name=%E5%B0%8F%E9%B9%8F%E8%B6%85%E5%85%85%C2%B7%E5%8D%972%E5%8F%B7%E7%AB%99&src=xpeng2amap&coordinate=gaode&callnative=1
+小鹏超充·五角场站  https://uri.amap.com/marker?position=121.515,31.301&name=%E5%B0%8F%E9%B9%8F%E8%B6%85%E5%85%85%C2%B7%E4%BA%94%E8%A7%92%E5%9C%BA%E7%AB%99&src=xpeng2amap&coordinate=gaode&callnative=1
+小鹏超充·北1号站  https://uri.amap.com/marker?position=121.3728,31.2152&name=%E5%B0%8F%E9%B9%8F%E8%B6%85%E5%85%85%C2%B7%E5%8C%971%E5%8F%B7%E7%AB%99&src=xpeng2amap&coordinate=gaode&callnative=1
+小鹏超充·南2号站  https://uri.amap.com/marker?position=121.5577,31.1756&name=%E5%B0%8F%E9%B9%8F%E8%B6%85%E5%85%85%C2%B7%E5%8D%972%E5%8F%B7%E7%AB%99&src=xpeng2amap&coordinate=gaode&callnative=1
+小鹏超充·南2号站  https://uri.amap.com/marker?position=121.4112,31.1536&name=%E5%B0%8F%E9%B9%8F%E8%B6%85%E5%85%85%C2%B7%E5%8D%972%E5%8F%B7%E7%AB%99&src=xpeng2amap&coordinate=gaode&callnative=1
+小鹏超充·浦东金桥站  https://uri.amap.com/marker?position=121.59,31.26&name=%E5%B0%8F%E9%B9%8F%E8%B6%85%E5%85%85%C2%B7%E6%B5%A6%E4%B8%9C%E9%87%91%E6%A1%A5%E7%AB%99&src=xpeng2amap&coordinate=gaode&callnative=1
+小鹏超充·张江人工智能岛站  https://uri.amap.com/marker?position=121.6027,31.2056&name=%E5%B0%8F%E9%B9%8F%E8%B6%85%E5%85%85%C2%B7%E5%BC%A0%E6%B1%9F%E4%BA%BA%E5%B7%A5%E6%99%BA%E8%83%BD%E5%B2%9B%E7%AB%99&src=xpeng2amap&coordinate=gaode&callnative=1
+小鹏超充·北1号站  https://uri.amap.com/marker?position=121.57,31.321&name=%E5%B0%8F%E9%B9%8F%E8%B6%85%E5%85%85%C2%B7%E5%8C%971%E5%8F%B7%E7%AB%99&src=xpeng2amap&coordinate=gaode&callnative=1
+小鹏超充·虹桥天地站  https://uri.amap.com/marker?position=121.3178,31.1952&name=%E5%B0%8F%E9%B9%8F%E8%B6%85%E5%85%85%C2%B7%E8%99%B9%E6%A1%A5%E5%A4%A9%E5%9C%B0%E7%AB%99&src=xpeng2amap&coordinate=gaode&callnative=1
