@@ -24,11 +24,24 @@ jobs:
         with:
           python-version: "3.11"
 
+      # 源数据 data/ -> 产物（index.html / data.json(.gz) / split/）
+      # build.py 默认输出到仓库根目录；这里是 CI，单独输出到 dist/ 更干净。
       - name: 构建（源数据 -> dist）
-        run: python3 build.py
+        run: python3 build.py --out dist
+
+      - name: 产出检查
+        run: |
+          set -e
+          for f in dist/index.html dist/data.json dist/data.json.gz dist/split/index.json; do
+            test -f "$f" || { echo "缺少产物：$f"; exit 1; }
+          done
+          echo "产物："
+          du -h dist/index.html dist/data.json dist/data.json.gz
+          echo "城市分包 $(ls dist/split/*.json.gz | wc -l) 个"
 
       - uses: actions/configure-pages@v5
 
+      # 只发布产物，不要把 data/ 源文件和 .py 脚本暴露在站点上
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
