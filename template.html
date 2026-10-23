@@ -165,7 +165,46 @@ document.getElementById('legend').onclick=function(){
 
 <script src="__AMAP_JS__"></script>
 <script>
-const DATA = __DATA__;
+/* ================= 数据加载 =================
+   页面本体不含数据，站点/城市/路线从同目录的 __DATA_FILE__ 读取。
+   三种打开方式都能用：
+     1) 网页访问（GitHub Pages / 本地 http 服务）→ fetch 同目录 json
+     2) 文件双击（file://）→ fetch 被浏览器拦，自动回退到内联快照 __INLINE_DATA__
+     3) 想换一份数据 → 地址栏加 ?data=别的.json
+*/
+const DATA_FILE = '__DATA_FILE__';
+const INLINE_DATA = __INLINE_DATA__;
+
+function loadData() {
+  const qs = new URLSearchParams(location.search);
+  const file = qs.get('data') || DATA_FILE;
+
+  const useInline = (why) => {
+    if (!INLINE_DATA) {
+      document.body.innerHTML =
+        '<div style="padding:40px;font:15px/1.9 -apple-system,sans-serif">' +
+        '<b>数据没加载出来</b><br>' + why +
+        '<br><br>解决办法：在本目录起一个本地服务再访问，例如<br>' +
+        '<code style="background:#f3f4f6;padding:4px 8px;border-radius:4px">python3 -m http.server 8000</code>' +
+        '<br>然后打开 http://localhost:8000/</div>';
+      return Promise.reject(new Error(why));
+    }
+    console.info('[charge-map] 回退到内联数据：' + why);
+    return Promise.resolve(INLINE_DATA);
+  };
+
+  // file:// 下 fetch 必然失败，直接走内联，省一次控制台报错
+  if (location.protocol === 'file:' && !qs.get('data')) {
+    return useInline('当前是本地文件方式打开（file://）');
+  }
+  return fetch(file, { cache: 'no-cache' })
+    .then(r => { if (!r.ok) throw new Error(r.status + ' ' + r.statusText); return r.json(); })
+    .catch(e => useInline('读取 ' + file + ' 失败（' + e.message + '）'));
+}
+
+loadData().then(DATA => {
+  window.DATA = DATA;
+
 const ALL = DATA.points.map((p, i) => ({...p, id: i}));
 
 /* ================= 状态 ================= */
@@ -729,6 +768,8 @@ function bind() {
 initMap();
 bind();
 S.route = buildRoute(S.from, S.to);
+
+});  /* end loadData().then */
 </script>
 </body>
 </html>

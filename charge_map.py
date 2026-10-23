@@ -29,12 +29,19 @@ def haversine_km(a, b):
     return 2 * R * math.asin(math.sqrt(h))
 
 
-def build(points, key):
-    # 给每个站补上所在城市（取最近的 city 中心），方便「全城」层筛选
+def build(data, key, data_file="data.json", inline=None):
+    """渲染页面模板。
+
+    data_file : 前端 fetch 的数据文件名（与 html 同目录）
+    inline    : 若要生成「单文件版」，传入数据对象，会内联成 file:// 兜底副本
+    """
     with open(TEMPLATE_PATH, encoding="utf-8") as f:
         tpl = f.read()
-    return tpl.replace("__AMAP_JS__", f"https://webapi.amap.com/maps?v=2.0&key={key}") \
-              .replace("__DATA__", json.dumps(points, ensure_ascii=False))
+    return (tpl
+            .replace("__AMAP_JS__", f"https://webapi.amap.com/maps?v=2.0&key={key}")
+            .replace("__DATA_FILE__", data_file)
+            .replace("__INLINE_DATA__",
+                     json.dumps(inline, ensure_ascii=False, separators=(",", ":")) if inline else "null"))
 
 
 def main():
@@ -45,6 +52,10 @@ def main():
     ap.add_argument("--csv", help="站点 CSV（中文表头），与 --data 二选一；城市中心取 --data 里的 cities")
     ap.add_argument("--routes", nargs="*", default=[], help="路线 json 文件（get_route.py 产出），可多个")
     ap.add_argument("--amap-key", default=os.environ.get("AMAP_JS_KEY", "2f282f369e388ef01bae260cbc35edce"))
+    ap.add_argument("--data-out", default="data.json",
+                    help="数据文件名（与 --out 同目录），默认 data.json")
+    ap.add_argument("--single-file", action="store_true",
+                    help="生成单文件版：数据内联进 html，双击 file:// 也能用（体积大）")
     a = ap.parse_args()
 
     with open(a.data, encoding="utf-8") as f:
@@ -82,11 +93,24 @@ def main():
     data["routes"] = routes
 
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
+
+    # 数据单独落盘，和 html 放同一目录，页面用 fetch 读
+    data_json_path = os.path.join(os.path.dirname(os.path.abspath(a.out)),
+                                  os.path.basename(a.data_out))
+    payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    with open(data_json_path, "w", encoding="utf-8") as f:
+        f.write(payload)
+
+    html = build(data, a.amap_key,
+                 data_file=os.path.basename(a.data_out),
+                 inline=(data if a.single_file else None))
     with open(a.out, "w", encoding="utf-8") as f:
-        f.write(build(data, a.amap_key))
+        f.write(html)
 
     free = sum(1 for p in data["points"] if p["type"] == "free")
     print(f"已生成 {a.out}")
+    print(f"  数据 {data_json_path}（{len(payload)/1024:.0f} KB，可单独编辑）")
+    print(f"  页面 {len(html)/1024:.0f} KB{'（单文件版，含内联数据）' if a.single_file else '（不含数据）'}")
     print(f"  站点 {len(data['points'])} 个（自营/免费 {free}，三方 {len(data['points'])-free}）")
     print(f"  城市 {', '.join(c['name'] for c in data['cities'][:8])}{'…' if len(data['cities'])>8 else ''}")
     if routes:
