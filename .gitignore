@@ -23,3 +23,6 @@ venv/
 
 # 高德导入用的 csv（导出脚本生成，随时可重跑）
 amap/
+
+# 全国抓取的原始中间件（可由 fetch_nationwide.py 重跑）
+data/_bycode/

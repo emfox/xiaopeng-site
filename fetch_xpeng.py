@@ -102,9 +102,15 @@ def main():
 
     # 决定要抓哪些城市：--cities 指定 > --stale 增量 > 全部
     if a.cities:
-        want = {c: CITIES[c] for c in a.cities.split(",") if c in CITIES}
+        # 内置表只有早期 49 城；cities.json 里带了全部城市的区号，可以兜底
+        extra = {}
+        for c in store.load_cities() or []:
+            if c.get("name") and c.get("code"):
+                extra[c["name"]] = c["code"]
+        pool = {**extra, **CITIES}
+        want = {c: pool[c] for c in a.cities.split(",") if c in pool}
         if not want:
-            sys.exit("城市名不在内置列表里：" + a.cities)
+            sys.exit("城市名不在城市列表里：" + a.cities)
     elif a.stale:
         old = set(store.stale_cities(a.stale))
         want = {c: v for c, v in CITIES.items() if c in old}
