@@ -473,12 +473,22 @@ function fitServiceArea() {
   }
   const spanLat = maxLat - minLat, spanLng = maxLng - minLng;
   const padX = spanLng * 0.10;
-  // 手机端面板吃掉下半屏 → 视野往南多扩，点就落到上半屏
-  const padSouth = window.innerWidth < 820 ? spanLat * 1.1 : spanLat * 0.12;
+  // 手机端底部面板吃掉下半屏（max-height 56%）→ 视野往南多扩，点就落到可见的上半屏。
+  // 留白按经纬度各自算：北纬 40° 一带 10° 纬度远长于 10° 经度，用同一个比例会把
+  // 视野拉成一条斜带，点全挤到左边。这里按横纵可用像素反推各自的留白量。
+  const mobile = window.innerWidth < 820;
+  const H = map.getSize().height, W = map.getSize().width;
+  const visH = mobile ? H * 0.42 : H * 0.92;
+  const visW = mobile ? W * 0.92 : W * 0.72;          // 桌面端左侧 360px 是浮层
+  const latPerPx = spanLat / Math.max(1, visH * 0.86);
+  const lngPerPx = spanLng / Math.max(1, visW * 0.86);
+  const padSouth = mobile ? (H - visH) * latPerPx * 0.92 : spanLat * 0.12;
   const padNorth = spanLat * 0.12;
+  const padWest  = spanLng * 0.10;
+  const padEast  = mobile ? spanLng * 0.10 : (W - visW) * lngPerPx * 0.9;
   map.setBounds(new AMap.Bounds(
-    [minLng - padX, minLat - padSouth],
-    [maxLng + padX, maxLat + padNorth]
+    [minLng - padWest, minLat - padSouth],
+    [maxLng + padEast, maxLat + padNorth]
   ), true);
 }
 
