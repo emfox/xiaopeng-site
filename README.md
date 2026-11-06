@@ -155,13 +155,26 @@ REST API 那条路 648 个文件要逐个 POST，走代理是一次 pack，几�
 
 ### 代理不通的时候
 
-订阅里全是 hysteria2，走 QUIC/UDP。这个沙箱**只放行国内 UDP**：`ntp.aliyun.com` 回包 14ms，`time.google.com` 和境外 QUIC 节点一律超时（连节点的 TCP 端口都能连上，说明是 UDP 被丢，不是节点挂了）。
+订阅里全是 hysteria2（QUIC/UDP）。这类节点会漂：同一节点一小时前 8 MB/s，过一会儿就 `context deadline exceeded`，`curl -x` 返回 502，内核日志刷连接超时。
 
-表现为 mihomo 日志刷 `context deadline exceeded`，`curl -x` 返回 502。这时：
+踩过的坑：**别手动把 `PROXY` 锁在某一个节点上**。锁定 V301 之后正好赶上那批节点抖动，一度以为是「沙箱封了境外 UDP」，还拿 NTP 超时当成证据——其实 `time.google.com` 的 NTP 在境内本来就常超时，这个判据不成立。真实情况只是那几个节点当时不通，AUTO 组切到别的节点立刻就恢复了。
 
-1. `./proxy.sh start` 会等 10 秒探测，探测失败要如实说明，别假装成功；
-2. 换一份 **trojan / vmess / ss** 的订阅（TCP），改 `proxy.sh` 里的 `SUB`，`./proxy.sh update`；
-3. 或者退回 `python3 push_github.py`——已改成 8 路并发上传 blob，648 个文件 1 分钟左右推完。
+现在的处理顺序：
+
+```bash
+./proxy.sh check     # 先确认是链路问题还是节点问题
+./proxy.sh best      # 实测切换：逐个真发请求，挑最快的那个
+```
+
+`pick.py` 不用内核自带的 `/delay` 测速，因为 mihomo v1.19.33 上它对 hysteria2 一律返回 `An error occurred in the delay test`（连 IP 形式的 URL 都失败，是接口本身的 bug，不是节点的问题）。改成「切过去、真发一次请求、看能不能拿到出口 IP」，慢一点但结果可信。
+
+`proxy.sh check` 里的 UDP 探测只作参考，别当铁证。
+
+实在不通就退回 REST API：
+
+```bash
+python3 push_github.py        # 8 路并发传 blob，648 个文件 1 分钟左右
+```
 
 用 API 推过一次之后，远端 commit 和本地不是同一条线。要么下一次接着用 API（脚本会自动以远端 HEAD 为父），要么 `git fetch && git reset --hard origin/main` 把本地对齐到远端（内容本来一致，只是丢掉那个本地 commit 对象）。
 
