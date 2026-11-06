@@ -44,6 +44,8 @@ select:focus,input[type=text]:focus{border-color:#111}
 .row #selProv{flex:0 0 25%}
 .row #selCity{flex:1 1 38%}
 .row #selDist{flex:1 1 37%}
+/* 高速服务区模式下城市框整个隐藏，省份框独占，免得「高速服务区（36）」被截成「高速」 */
+.row.svc #selProv{flex:1 1 100%}
 
 #list{overflow:auto;flex:1;min-height:80px}
 .card{padding:11px 14px;border-bottom:1px solid #f4f6f9;cursor:pointer;position:relative;transition:background .12s}
@@ -237,12 +239,28 @@ loadData().then(DATA => {
 
 const ALL = DATA.points.map((p, i) => ({...p, id: i}));
 
+/* ================= 高速服务区 =================
+   服务区不是按城市分布的：京港澳一个服务区在信阳、下一个在许昌，
+   逐个城市翻很蠢。所以把它做成「省份」那一级的特殊选项，
+   选中后直接列全国的服务区，按离你当前位置远近排。
+
+   判断依据是站名含「服务区」。地址里偶尔也会提到服务区（比如某个
+   商场站在服务区出口附近），但站名不含，所以只用站名匹配更准。 */
+const SERVICE = {
+  name: '高速服务区',
+  center: [110.5, 33.5],   // 全国视野
+  zoom: 4,
+  match: p => (p.name || '').includes('服务区')
+};
+const SERVICE_COUNT = ALL.filter(SERVICE.match).length;
+
 /* ================= 状态 ================= */
 /* 首屏落到哪个城市：先看上次选过的，否则挑站最多的（别用列表第一个，
    那是拼音序的七台河，用户一进来会一脸问号）。定位成功后会再纠正一次。 */
 function initialCity() {
   try {
     const saved = localStorage.getItem('xp.city');
+    if (saved === SERVICE.name) return saved;
     if (saved && DATA.cities.some(c => c.name === saved)) return saved;
   } catch (e) { /* 隐私模式下 localStorage 会抛错，忽略 */ }
   const best = DATA.cities.slice().sort((a, b) => (b.count || 0) - (a.count || 0))[0];
@@ -280,7 +298,7 @@ function distToSeg(p, a, b) {
   t = Math.max(0, Math.min(1, t));
   return [Math.hypot(px - t * bx, py - t * by), t];
 }
-const cityOf = n => DATA.cities.find(c => c.name === n);
+const cityOf = n => n === SERVICE.name ? SERVICE : DATA.cities.find(c => c.name === n);
 
 /* ================= 地图 ================= */
 let map, infoWin, circle, meMarker, routeLine;
@@ -338,9 +356,10 @@ function locateMe() {
   navigator.geolocation.getCurrentPosition(
     pos => {
       S.me = [pos.coords.longitude, pos.coords.latitude];
-      // 定位成功后把「全城」层默认切到用户所在城市，省得手动选
+      // 定位成功后把「全城」层默认切到用户所在城市，省得手动选。
+      // 但用户主动选了「高速服务区」时不抢——那是跨省的视图，切走就没意义了
       const near = nearestCity(S.me);
-      if (near && near.name !== S.city) {
+      if (near && near.name !== S.city && S.city !== SERVICE.name) {
         S.city = near.name;
         syncCityUI();
       }
@@ -353,6 +372,13 @@ function locateMe() {
 /* 城市变了以后，把所有跟城市相关的控件同步一遍：
    全城层的城市下拉、区县下拉、沿线层的起点。*/
 function syncCityUI() {
+  // 服务区模式下城市下拉是锁死的（只有一个「全部服务区」），
+  // 定位回来了也不该把它冲掉——用户选服务区是明确意图
+  if (S.city === SERVICE.name) {
+    const sp = document.getElementById('selProv');
+    if (sp) sp.value = SERVICE.name;
+    return;
+  }
   const sel = document.getElementById('selCity');
   if (sel) sel.value = S.city;
   const sd = document.getElementById('selDist');
@@ -430,6 +456,30 @@ function focusPoint(zoom, pt) {
   const degPerPx = 360 / (256 * Math.pow(2, zoom));
   const latShift = dy * degPerPx * Math.cos(pt[1] * Math.PI / 180);  // 往南挪
   map.setZoomAndCenter(zoom, [pt[0], pt[1] - latShift], true);
+}
+
+/* 把全国服务区一次性框进视野。
+   固定 zoom 不行：服务区从承德到三亚都有，zoom 4 会把中国推到屏幕左上角，
+   右边一片太平洋。按实际点集的包围盒算，再给手机端下方留出面板的高度。 */
+function fitServiceArea() {
+  const pts = ALL.filter(SERVICE.match);
+  if (pts.length < 2) return;
+  let minLng = 1e9, maxLng = -1e9, minLat = 1e9, maxLat = -1e9;
+  for (const p of pts) {
+    if (p.lng < minLng) minLng = p.lng;
+    if (p.lng > maxLng) maxLng = p.lng;
+    if (p.lat < minLat) minLat = p.lat;
+    if (p.lat > maxLat) maxLat = p.lat;
+  }
+  const spanLat = maxLat - minLat, spanLng = maxLng - minLng;
+  const padX = spanLng * 0.10;
+  // 手机端面板吃掉下半屏 → 视野往南多扩，点就落到上半屏
+  const padSouth = window.innerWidth < 820 ? spanLat * 1.1 : spanLat * 0.12;
+  const padNorth = spanLat * 0.12;
+  map.setBounds(new AMap.Bounds(
+    [minLng - padX, minLat - padSouth],
+    [maxLng + padX, maxLat + padNorth]
+  ), true);
 }
 
 /* 视野适配：交给高德自己算（setFitView 最稳），再用容器偏移把内容让到可见区 */
@@ -515,9 +565,17 @@ function computeList() {
     if (S.radius) list = list.filter(p => p.d <= S.radius);
     list.sort((a, b) => a.d - b.d);
   } else if (S.level === 'city') {
-    list = list.filter(p => p.city === S.city && (!S.dist || (p.addr || '').startsWith(S.dist) || (p.addr || '').includes(S.dist)));
-    const c = cityOf(S.city).center;
-    list = list.map(p => ({ ...p, d: km(c, [p.lng, p.lat]) })).sort((a, b) => a.d - b.d);
+    if (S.city === SERVICE.name) {
+      // 全国服务区，按离你的位置远近排
+      const from = S.me || SERVICE.center;
+      list = list.filter(SERVICE.match)
+                 .map(p => ({ ...p, d: km(from, [p.lng, p.lat]) }))
+                 .sort((a, b) => a.d - b.d);
+    } else {
+      list = list.filter(p => p.city === S.city && (!S.dist || (p.addr || '').startsWith(S.dist) || (p.addr || '').includes(S.dist)));
+      const c = cityOf(S.city).center;
+      list = list.map(p => ({ ...p, d: km(c, [p.lng, p.lat]) })).sort((a, b) => a.d - b.d);
+    }
   } else {
     if (!S.route) return [];
     const prog = +document.getElementById('cruiseRange').value / 100;
@@ -689,14 +747,25 @@ function refresh() {
   renderPins(S.list);
   renderList(S.list);
 
+  // 服务区视图初次进来时把视野框住全国；用户之后拖动地图不再重置
+  if (S.level === 'city' && S.city === SERVICE.name && !S.svcFitted) {
+    S.svcFitted = true;
+    setTimeout(fitServiceArea, 60);
+  }
+
   const free = S.list.filter(p => p.type === 'free').length;
   const park = S.list.filter(p => p.park).length;
   if (S.level === 'near') {
     document.getElementById('title').textContent = `附近的充电站`;
     setHint(`以当前位置为圆心 ${S.radius || '不限'} km 内 · 共 ${S.list.length} 个，其中免费权益 ${free} 个、免费停车 ${park} 个`);
   } else if (S.level === 'city') {
-    document.getElementById('title').textContent = S.city + ' · 全市充电站';
-    setHint(`共 ${S.list.length} 个，其中免费权益 ${free} 个、免费停车 ${park} 个`);
+    if (S.city === SERVICE.name) {
+      document.getElementById('title').textContent = '高速服务区 · 全国';
+      setHint(`共 ${S.list.length} 个服务区站（双向分别计），其中免费权益 ${free} 个、免费停车 ${park} 个`);
+    } else {
+      document.getElementById('title').textContent = S.city + ' · 全市充电站';
+      setHint(`共 ${S.list.length} 个，其中免费权益 ${free} 个、免费停车 ${park} 个`);
+    }
   } else {
     document.getElementById('title').textContent = `${S.from} → ${S.to} 沿途`;
     setHint(`全程约 ${S.route.km.toFixed(0)} km（${S.route.preset ? '高德实际路线' : '示意直线'}）· 推荐 ${S.list.length} 个停靠站`);
@@ -773,8 +842,12 @@ function bind() {
     } else if (S.level === 'city') {
       if (circle) circle.hide();
       if (meMarker) meMarker.hide();
-      const c = cityOf(S.city);
-      focusPoint(c.zoom, c.center);
+      if (S.city === SERVICE.name) {
+        fitServiceArea();
+      } else {
+        const c = cityOf(S.city);
+        focusPoint(c.zoom, c.center);
+      }
     } else {
       if (circle) circle.hide();
       if (meMarker) meMarker.hide();
@@ -839,10 +912,25 @@ function bind() {
     selCity.value = keep && list.some(c => c.name === keep) ? keep : (list[0] || {}).name;
   }
 
-  selProv.innerHTML = provs.map(p => `<option>${p}</option>`).join('');
+  selProv.innerHTML =
+    // 服务区和省份并列，放在最前面（它是「跨省的」一类站点，不是某个省）
+    `<option value="${SERVICE.name}">高速服务区（${SERVICE_COUNT}）</option>` +
+    '<option disabled>────────────</option>' +
+    provs.map(p => `<option>${p}</option>`).join('');
   selProv.value = provOf(S.city);
   fillCities(selProv.value, S.city);
   selCity.value = S.city;          // 定位可能早于这里完成，补一次同步
+
+  // 上次停在服务区视图的话，这里要把两个下拉恢复成锁定状态
+  if (S.city === SERVICE.name) {
+    selProv.value = SERVICE.name;
+    selCity.innerHTML = '<option>全部服务区</option>';
+    selCity.disabled = true;
+    selCity.style.display = 'none';
+    selDist.style.display = 'none';
+    const row = selProv.closest('.row');
+    if (row) row.classList.add('svc');
+  }
 
   // 区县数据放在 data/districts.json（build.py 生成）。文件不存在就退化成「不显示区县」，
   // 不影响其他功能。之前是从地址开头抓「2~4 字 + 区/县/市」，抓出来的是「杭州市」这种
@@ -870,18 +958,38 @@ function bind() {
     try { localStorage.setItem('xp.city', name); } catch (e) { /* 忽略 */ }
     const c = cityOf(name);
     if (c) map.setZoomAndCenter(c.zoom, c.center, true);
-    selProv.value = provOf(name);
-    fillCities(selProv.value, name);
-    selCity.value = name;
-    rebuildDistricts();
+
+    if (name === SERVICE.name) {
+      // 服务区没有「城市 / 区县」两级：城市框整个收起，省份框独占一行，
+      // 「高速服务区（36）」才不会被压成「高速」
+      selProv.value = SERVICE.name;
+      selCity.innerHTML = '<option>全部服务区</option>';
+      selCity.disabled = true;
+      selCity.style.display = 'none';
+      selDist.innerHTML = '<option value="">全部区县</option>';
+      selDist.style.display = 'none';
+      S.dist = '';
+      const row = selProv.closest('.row');
+      if (row) row.classList.add('svc');
+    } else {
+      selCity.disabled = false;
+      selCity.style.display = '';
+      const row = selProv.closest('.row');
+      if (row) row.classList.remove('svc');
+      selProv.value = provOf(name);
+      fillCities(selProv.value, name);
+      selCity.value = name;
+      rebuildDistricts();
+    }
     refresh();
   }
 
   selProv.onchange = () => {
+    if (selProv.value === SERVICE.name) { gotoCity(SERVICE.name); return; }
     const first = citiesOf(selProv.value).slice().sort((a, b) => (b.count || 0) - (a.count || 0))[0];
     if (first) gotoCity(first.name);
   };
-  selCity.onchange = () => gotoCity(selCity.value);
+  selCity.onchange = () => { if (!selCity.disabled) gotoCity(selCity.value); };
   window.gotoCity = gotoCity;
 
   // 沿途线路
