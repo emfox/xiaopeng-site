@@ -181,6 +181,7 @@ def main():
     ap.add_argument("--cities", default="", help="只导出这些城市，逗号分隔")
     ap.add_argument("--all", action="store_true", help="额外生成全部城市合一的大文件")
     ap.add_argument("--park-only", action="store_true", help="只导出有停车优惠的站")
+    ap.add_argument("--keyword", default="", help="只导出站名/地址含该关键词的站，如「服务区」")
     ap.add_argument("--out", default=OUT, help="输出目录，默认 amap/")
     ap.add_argument("--template", default=None, help="高德官方导入模板路径")
     ap.add_argument("--per-file", type=int, default=0,
@@ -201,6 +202,10 @@ def main():
     if a.cities:
         want = {c.strip() for c in a.cities.split(",") if c.strip()}
         points = [p for p in points if p.get("city") in want]
+    if a.keyword:
+        kw = a.keyword
+        points = [p for p in points
+                  if kw in (p.get("name") or "") or kw in (p.get("addr") or "")]
 
     by_city = {}
     for p in points:

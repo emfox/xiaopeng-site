@@ -125,18 +125,43 @@ def normalize(p):
     return p
 
 
+def _rank(p):
+    """同名同坐标的多条记录里挑一条：字段填得越全越优先，其次取桩数多的那台"""
+    filled = sum(1 for k in ("addr", "price", "oper", "guns", "power", "freeNums", "labels")
+                 if p.get(k) not in (None, "", [], False))
+    guns = sum(p.get(k) or 0 for k in ("dc", "ac", "s4"))
+    try:
+        guns = guns or int(str(p.get("guns") or "0").strip() or 0)
+    except ValueError:
+        pass
+    return (filled, guns)
+
+
 def load_all():
-    """读全部站点，带跨城去重（同一站可能在不同城市文件里出现）"""
-    out, seen = [], {}
+    """读全部站点，带跨城去重。
+
+    去重键是「站名 + 坐标」而不是 id：小鹏把同一个物理站登记成了两条不同 id
+    （比如中国石化的站，一条运营方写「库仑」一条写「中国石化」），
+    按 id 去重会在导入高德时出现两个重叠的点。
+    同一键的多条记录不丢弃，而是合并——取信息最全的那条的骨架，
+    其余记录只用来补空字段。
+    """
+    merged = {}
+    order = []
     for c in city_names():
         for p in load_city(c):
             p["city"] = c
             key = (p.get("name"), round(float(p.get("lng", 0)), 5), round(float(p.get("lat", 0)), 5))
-            if key in seen:
+            if key not in merged:
+                merged[key] = p
+                order.append(key)
                 continue
-            seen[key] = 1
-            out.append(normalize(p))
-    return out
+            keep, other = sorted((merged[key], p), key=_rank, reverse=True)
+            for k, v in other.items():
+                if keep.get(k) in (None, "", [], False) and v not in (None, "", [], False):
+                    keep[k] = v
+            merged[key] = keep
+    return [normalize(merged[k]) for k in order]
 
 
 # ---------------- 路线 ----------------
