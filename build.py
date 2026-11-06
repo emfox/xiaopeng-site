@@ -148,6 +148,22 @@ def main():
     print(f"  {json_path}   {len(payload)/1024:.0f} KB")
     print(f"  {gz_path}   {os.path.getsize(gz_path)/1024:.0f} KB")
 
+    # ---------- 区县索引（页面按需加载，不用随主包一起下来） ----------
+    dist_src = os.path.join(ROOT, "data", "districts.json")
+    dist_dst = os.path.join(a.out, "data", "districts.json")
+    if os.path.exists(dist_src):
+        os.makedirs(os.path.dirname(dist_dst), exist_ok=True)
+        with open(dist_src, encoding="utf-8") as f:
+            raw = f.read()
+        d = json.loads(raw)
+        # 只保留还有站点的城市，源数据删了城市后这里不会留孤儿
+        alive_city = {p["city"] for p in points}
+        d["districts"] = {k: v for k, v in d.get("districts", {}).items() if k in alive_city}
+        out = json.dumps(d, ensure_ascii=False, separators=(",", ":"))
+        write_if_changed(dist_dst, out.encode("utf-8"))
+        n_dist = sum(len(v) for v in d["districts"].values())
+        print(f"  {dist_dst}   {len(out)/1024:.0f} KB（{len(d['districts'])} 个城市，{n_dist} 个区县）")
+
     # ---------- 按城市分包（首屏只加载当前城市） ----------
     if not a.no_split:
         split_dir = os.path.join(a.out, "split")

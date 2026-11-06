@@ -40,6 +40,10 @@ select,input[type=text]{border:1px solid #e3e7ee;border-radius:9px;padding:7px 9
 select:focus,input[type=text]:focus{border-color:#111}
 .row{display:flex;gap:6px;width:100%}
 .row select,.row input{flex:1;min-width:0}
+/* 省 / 市 / 区县：省份名短，给少点；城市名最长，给多点 */
+.row #selProv{flex:0 0 25%}
+.row #selCity{flex:1 1 38%}
+.row #selDist{flex:1 1 37%}
 
 #list{overflow:auto;flex:1;min-height:80px}
 .card{padding:11px 14px;border-bottom:1px solid #f4f6f9;cursor:pointer;position:relative;transition:background .12s}
@@ -127,6 +131,7 @@ select:focus,input[type=text]:focus{border-color:#111}
   <!-- ② 全城 -->
   <div class="ctrl" id="ctrl-city" style="display:none">
     <div class="row">
+      <select id="selProv"></select>
       <select id="selCity"></select>
       <select id="selDist"><option value="">全部区县</option></select>
     </div>
@@ -807,36 +812,77 @@ function bind() {
     refresh();
   });
 
-  // 城市
+  // ---------- 城市：省份 → 城市 → 区县 三级联动 ----------
+  // 308 个城市平铺在一个下拉里没法找，先按省份收一层。
+  const selProv = document.getElementById('selProv');
   const selCity = document.getElementById('selCity');
-  selCity.innerHTML = DATA.cities.map(c => `<option>${c.name}</option>`).join('');
-  selCity.value = S.city;          // 定位可能早于这里完成，补一次同步
   const selDist = document.getElementById('selDist');
 
-  // 从地址里抽区县（"上城区延安路…" → "上城区"），建成下拉选项
+  const provOf = name => (cityOf(name) || {}).province || '其他';
+  const citiesOf = p => DATA.cities.filter(c => (c.province || '其他') === p);
+
+  // 省份按地理大区排（华北、东北、华东…），不是拼音
+  const PROV_ORDER = ['北京','天津','河北','山西','内蒙古','辽宁','吉林','黑龙江',
+    '上海','江苏','浙江','安徽','福建','江西','山东',
+    '河南','湖北','湖南','广东','广西','海南',
+    '重庆','四川','贵州','云南','西藏',
+    '陕西','甘肃','青海','宁夏','新疆','香港','澳门','台湾'];
+  const provRank = p => { const i = PROV_ORDER.indexOf(p); return i < 0 ? 99 : i; };
+
+  const provs = [...new Set(DATA.cities.map(c => c.province || '其他'))]
+    .filter(p => p !== '其他')
+    .sort((a, b) => provRank(a) - provRank(b));
+
+  function fillCities(prov, keep) {
+    const list = citiesOf(prov).slice().sort((a, b) => (b.count || 0) - (a.count || 0));
+    selCity.innerHTML = list.map(c => `<option>${c.name}</option>`).join('');
+    selCity.value = keep && list.some(c => c.name === keep) ? keep : (list[0] || {}).name;
+  }
+
+  selProv.innerHTML = provs.map(p => `<option>${p}</option>`).join('');
+  selProv.value = provOf(S.city);
+  fillCities(selProv.value, S.city);
+  selCity.value = S.city;          // 定位可能早于这里完成，补一次同步
+
+  // 区县数据放在 data/districts.json（build.py 生成）。文件不存在就退化成「不显示区县」，
+  // 不影响其他功能。之前是从地址开头抓「2~4 字 + 区/县/市」，抓出来的是「杭州市」这种
+  // 市级地名，于是杭州凭几条以「杭州市」开头的地址就多出一个区县选项——现在改成读预处理结果。
+  let DISTRICTS = {};
+  fetch('data/districts.json')
+    .then(r => (r.ok ? r.json() : {}))
+    .then(d => { DISTRICTS = (d && d.districts) || {}; rebuildDistricts(); })
+    .catch(() => {});
+
   function rebuildDistricts() {
-    const set = new Set();
-    ALL.filter(p => p.city === S.city).forEach(p => {
-      const m = (p.addr || '').match(/^([\u4e00-\u9fa5]{2,4}(?:区|县|市))/);
-      if (m) set.add(m[1]);
-    });
+    const list = DISTRICTS[S.city] || [];
     selDist.innerHTML = '<option value="">全部区县</option>' +
-      [...set].sort().map(d => `<option>${d}</option>`).join('');
-    selDist.style.display = set.size ? '' : 'none';
+      list.map(d => `<option value="${d.name}">${d.name}（${d.count}）</option>`).join('');
+    const on = list.length > 1;          // 只有一个区县的话没必要给人选
+    selDist.style.display = on ? '' : 'none';
     S.dist = '';
   }
   window.rebuildDistricts = rebuildDistricts;   // 定位换城市时要从外面调用
   rebuildDistricts();
   selDist.onchange = () => { S.dist = selDist.value; refresh(); };
 
-  selCity.onchange = () => {
-    S.city = selCity.value;
-    try { localStorage.setItem('xp.city', S.city); } catch (e) { /* 忽略 */ }
-    const c = cityOf(S.city);
-    map.setZoomAndCenter(c.zoom, c.center, true);
+  function gotoCity(name, zoom) {
+    S.city = name;
+    try { localStorage.setItem('xp.city', name); } catch (e) { /* 忽略 */ }
+    const c = cityOf(name);
+    if (c) map.setZoomAndCenter(c.zoom, c.center, true);
+    selProv.value = provOf(name);
+    fillCities(selProv.value, name);
+    selCity.value = name;
     rebuildDistricts();
     refresh();
+  }
+
+  selProv.onchange = () => {
+    const first = citiesOf(selProv.value).slice().sort((a, b) => (b.count || 0) - (a.count || 0))[0];
+    if (first) gotoCity(first.name);
   };
+  selCity.onchange = () => gotoCity(selCity.value);
+  window.gotoCity = gotoCity;
 
   // 沿途线路
   const names = DATA.cities.map(c => c.name);
