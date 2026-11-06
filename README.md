@@ -149,9 +149,21 @@ split/                       516 KB  构建产物
 git push                  # 全局配置里 github.com 已指向 7890，直接推
 ```
 
-REST API 那条路 648 个文件要逐个 POST，5 分钟只能传 500 个；走代理是一次 pack，几秒钟的事。**有代理就别用 `push_github.py`。**
+REST API 那条路 648 个文件要逐个 POST，走代理是一次 pack，几秒钟的事。**代理能用就别用 `push_github.py`。**
 
 > 首次推送曾因远端历史是 API 造的链（commit sha 和本地不一致）被拒。确认远端那些提交都是同一个脚本生成的之后，用 `--force-with-lease` 覆盖，历史就统一成本地这条线了。
+
+### 代理不通的时候
+
+订阅里全是 hysteria2，走 QUIC/UDP。这个沙箱**只放行国内 UDP**：`ntp.aliyun.com` 回包 14ms，`time.google.com` 和境外 QUIC 节点一律超时（连节点的 TCP 端口都能连上，说明是 UDP 被丢，不是节点挂了）。
+
+表现为 mihomo 日志刷 `context deadline exceeded`，`curl -x` 返回 502。这时：
+
+1. `./proxy.sh start` 会等 10 秒探测，探测失败要如实说明，别假装成功；
+2. 换一份 **trojan / vmess / ss** 的订阅（TCP），改 `proxy.sh` 里的 `SUB`，`./proxy.sh update`；
+3. 或者退回 `python3 push_github.py`——已改成 8 路并发上传 blob，648 个文件 1 分钟左右推完。
+
+用 API 推过一次之后，远端 commit 和本地不是同一条线。要么下一次接着用 API（脚本会自动以远端 HEAD 为父），要么 `git fetch && git reset --hard origin/main` 把本地对齐到远端（内容本来一致，只是丢掉那个本地 commit 对象）。
 
 ---
 
