@@ -44,7 +44,7 @@ select:focus,input[type=text]:focus{border-color:#111}
 .row #selProv{flex:0 0 25%}
 .row #selCity{flex:1 1 38%}
 .row #selDist{flex:1 1 37%}
-/* 高速服务区模式下城市框整个隐藏，省份框独占，免得「高速服务区（36）」被截成「高速」 */
+/* 高速服务区模式下城市框整个隐藏，省份框独占，免得「高速服务区（n）」被截成「高速」 */
 .row.svc #selProv{flex:1 1 100%}
 
 #list{overflow:auto;flex:1;min-height:80px}
@@ -244,13 +244,14 @@ const ALL = DATA.points.map((p, i) => ({...p, id: i}));
    逐个城市翻很蠢。所以把它做成「省份」那一级的特殊选项，
    选中后直接列全国的服务区，按离你当前位置远近排。
 
-   判断依据是站名含「服务区」。地址里偶尔也会提到服务区（比如某个
-   商场站在服务区出口附近），但站名不含，所以只用站名匹配更准。 */
+   判断依据：站名或地址含「服务区」。只看站名会漏——有的站名是
+   「中国石化霞涌南充电站」，服务区只写在地址里（霞涌服务区·惠深沿海高速）。
+   两个用法（网页 / 导出高德）必须用同一口径，否则数出来一个 36 一个 38。 */
 const SERVICE = {
   name: '高速服务区',
   center: [110.5, 33.5],   // 全国视野
   zoom: 4,
-  match: p => (p.name || '').includes('服务区')
+  match: p => (p.name || '').includes('服务区') || (p.addr || '').includes('服务区')
 };
 const SERVICE_COUNT = ALL.filter(SERVICE.match).length;
 
@@ -971,7 +972,7 @@ function bind() {
 
     if (name === SERVICE.name) {
       // 服务区没有「城市 / 区县」两级：城市框整个收起，省份框独占一行，
-      // 「高速服务区（36）」才不会被压成「高速」
+      // 「高速服务区（n）」才不会被压成「高速」
       selProv.value = SERVICE.name;
       selCity.innerHTML = '<option>全部服务区</option>';
       selCity.disabled = true;

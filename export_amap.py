@@ -25,6 +25,7 @@ export_amap.py —— 用小鹏站点数据填充「高德地图小程序」官�
   python3 export_amap.py --all           # 额外生成全部城市合一的文件
   python3 export_amap.py --cities 上海,杭州
   python3 export_amap.py --park-only     # 只要带停车优惠的
+  python3 export_amap.py --service-area  # 只导高速服务区，单文件 + 单文件夹
   python3 export_amap.py --template 路径  # 指定官方模板
 """
 from __future__ import annotations
@@ -61,6 +62,15 @@ COLOR_MEANING = {
 }
 
 SHEET = "标记位置"
+
+# 高速服务区的判定口径，必须和网页 template.html 里的 SERVICE.match 一致：
+# 站名或地址含「服务区」。只看站名会漏两条（站名是中国石化xx站，服务区写在地址里）。
+SERVICE_KW = "服务区"
+SERVICE_FOLDER = "高速服务区"
+
+
+def is_service_area(p) -> bool:
+    return SERVICE_KW in (p.get("name") or "") or SERVICE_KW in (p.get("addr") or "")
 
 
 def find_template(explicit: str | None) -> str:
@@ -116,7 +126,7 @@ def describe(p) -> str:
     return "；".join(bits)
 
 
-def row_for(p):
+def row_for(p, folder=None):
     """按模板顺序返回 9 个值。全部用字符串，和官方模板保持一致。"""
     lng, lat = p.get("lng"), p.get("lat")
     if lng is None or lat is None:
@@ -132,11 +142,11 @@ def row_for(p):
         "",                                     # 图标(外轮廓)
         "",                                     # 图标(填充物)
         desc,
-        p.get("city") or "",                    # 文件夹：按城市分组，地图里自动建文件夹
+        folder if folder is not None else (p.get("city") or ""),
     ]
 
 
-def build(template: str, out_path: str, points, keep_other_sheets=False):
+def build(template: str, out_path: str, points, keep_other_sheets=False, folder=None):
     """复制官方模板，清空「标记位置」的数据区，再写入新数据。
 
     keep_other_sheets=False 时会删掉「导入说明」「颜色说明」两个工作表。
@@ -159,7 +169,7 @@ def build(template: str, out_path: str, points, keep_other_sheets=False):
 
     n = 0
     for p in points:
-        vals = row_for(p)
+        vals = row_for(p, folder)
         if not vals:
             continue
         r = n + 2
@@ -182,6 +192,8 @@ def main():
     ap.add_argument("--all", action="store_true", help="额外生成全部城市合一的大文件")
     ap.add_argument("--park-only", action="store_true", help="只导出有停车优惠的站")
     ap.add_argument("--keyword", default="", help="只导出站名/地址含该关键词的站，如「服务区」")
+    ap.add_argument("--service-area", action="store_true",
+                    help="只导出高速服务区站，且合成单个文件、文件夹统一填「高速服务区」")
     ap.add_argument("--out", default=OUT, help="输出目录，默认 amap/")
     ap.add_argument("--template", default=None, help="高德官方导入模板路径")
     ap.add_argument("--per-file", type=int, default=0,
@@ -206,6 +218,21 @@ def main():
         kw = a.keyword
         points = [p for p in points
                   if kw in (p.get("name") or "") or kw in (p.get("addr") or "")]
+    if a.service_area:
+        points = [p for p in points if is_service_area(p)]
+
+    # 服务区站散在二十几个城市，按城市分文件夹会散成一堆；
+    # 收进一个「高速服务区」文件夹，导进高德就是干净的一层。
+    if a.service_area:
+        os.makedirs(a.out, exist_ok=True)
+        for old in os.listdir(a.out):
+            if old.endswith((".csv", ".xlsx")):
+                os.remove(os.path.join(a.out, old))
+        n = build(tpl, os.path.join(a.out, f"{SERVICE_FOLDER}.xlsx"),
+                  points, folder=SERVICE_FOLDER)
+        print(f"  {SERVICE_FOLDER}.xlsx  {n} 个站")
+        write_help(a.out, single=True)
+        return
 
     by_city = {}
     for p in points:
@@ -228,7 +255,14 @@ def main():
         n = build(tpl, os.path.join(a.out, "全部城市.xlsx"), points)
         print(f"  全部城市.xlsx  {n} 个站")
 
-    with open(os.path.join(a.out, "导入说明.txt"), "w", encoding="utf-8") as f:
+    write_help(a.out)
+    print("  导入说明.txt")
+    print(f"\n合计 {len(by_city)} 个城市 · {total} 个站")
+
+
+def write_help(out_dir, single=False):
+    """写导入说明.txt。single=True 时说明里不提「按城市分文件夹」。"""
+    with open(os.path.join(out_dir, "导入说明.txt"), "w", encoding="utf-8") as f:
         f.write(
             "这些 xlsx 是基于高德官方模板填充的，表头/单元格格式与模板完全一致。\n\n"
             "导入方法\n"
@@ -240,16 +274,17 @@ def main():
         )
         for k in (COLOR_FREE_PARK, COLOR_FREE, COLOR_THIRD_PARK, COLOR_THIRD):
             f.write(f"  {k}  {COLOR_MEANING[k]}\n")
+        f.write("\n文件夹\n")
+        if single:
+            f.write("  全部点位收在「高速服务区」一个文件夹里，地图上是一层，不会散。\n\n")
+        else:
+            f.write("  已按城市自动填了「文件夹」列，导入后地图里会生成按城市分的文件夹。\n\n")
         f.write(
-            "\n文件夹\n"
-            "  已按城市自动填了「文件夹」列，导入后地图里会生成按城市分的文件夹。\n\n"
             "注意\n"
             "  - 单次上传 ≤ 50000 行、≤ 20 MB\n"
             "  - 高德不支持覆盖更新，重新导入前要先删旧地图或新建一张\n"
             "  - 坐标系 GCJ-02，和高德一致，不用转换\n"
         )
-    print("  导入说明.txt")
-    print(f"\n合计 {len(by_city)} 个城市 · {total} 个站")
 
 
 if __name__ == "__main__":
