@@ -233,12 +233,23 @@ loadData().then(DATA => {
 const ALL = DATA.points.map((p, i) => ({...p, id: i}));
 
 /* ================= 状态 ================= */
+/* 首屏落到哪个城市：先看上次选过的，否则挑站最多的（别用列表第一个，
+   那是拼音序的七台河，用户一进来会一脸问号）。定位成功后会再纠正一次。 */
+function initialCity() {
+  try {
+    const saved = localStorage.getItem('xp.city');
+    if (saved && DATA.cities.some(c => c.name === saved)) return saved;
+  } catch (e) { /* 隐私模式下 localStorage 会抛错，忽略 */ }
+  const best = DATA.cities.slice().sort((a, b) => (b.count || 0) - (a.count || 0))[0];
+  return best ? best.name : DATA.cities[0].name;
+}
+
 const S = {
   level: 'near',
   free: true, third: true, park: false,
   radius: 5,
   me: null,               // [lng, lat]
-  city: DATA.cities[0].name,
+  city: initialCity(),
   dist: '',
   from: '', to: '',
   route: null,            // {polyline, cum, km, via}
@@ -820,6 +831,7 @@ function bind() {
 
   selCity.onchange = () => {
     S.city = selCity.value;
+    try { localStorage.setItem('xp.city', S.city); } catch (e) { /* 忽略 */ }
     const c = cityOf(S.city);
     map.setZoomAndCenter(c.zoom, c.center, true);
     rebuildDistricts();
