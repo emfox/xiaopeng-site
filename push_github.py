@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 """用 GitHub REST API 把本地 main 分支同步到远端。
 
-沙箱里 `git push`（github.com:443）不通，只有 api.github.com 可访问，
-所以走 Git Data API 手工造对象：blob -> tree -> commit -> 更新 ref。
+⚠️ 有这个脚本是因为沙箱里 `git push`（github.com:443）曾被拦，只有
+api.github.com 可访问。**现在有代理了，优先用 `git push`**（见 README
+「推送：为什么要挂代理」），一次 pack 几秒钟，本脚本只作兜底。
+
+代价很直观：REST 方式要逐个文件 POST blob，648 个文件跑 5 分钟只能到 500 个，
+而且每次 commit 的 sha 跟本地 git 历史不是同一条线，推完之后两边会分叉。
+
+走 Git Data API 手工造对象：blob -> tree -> commit -> 更新 ref。
 
 用法：
     python3 push_github.py                  # 只同步 git 已跟踪的文件

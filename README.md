@@ -133,8 +133,25 @@ split/                       516 KB  构建产物
 | `fetch_fast.py` | 多线程补抓详情 |
 | `get_route.py` | 取高德真实驾车路线（免 key） |
 | `migrate_source.py` | 一次性迁移脚本（把旧的单个大 json 拆成按城市） |
-| `push_github.py` | 用 GitHub REST API 同步到远端（本机 `git push` 不通时的替代） |
+| `push_github.py` | 用 GitHub REST API 同步到远端（没有代理、`git push` 不通时的兜底） |
 | `template.html` | 页面模板 |
+
+---
+
+## 推送：为什么要挂代理
+
+沙箱里 `github.com:443` 的写操作（`git push`）会被拦，只有 `api.github.com` 通。所以最早是 `push_github.py` 走 REST API 手工造 blob → tree → commit。
+
+能开代理就直接用 git：
+
+```bash
+./proxy.sh start          # 起 mihomo，HTTP/SOCKS 混合端口 7890
+git push                  # 全局配置里 github.com 已指向 7890，直接推
+```
+
+REST API 那条路 648 个文件要逐个 POST，5 分钟只能传 500 个；走代理是一次 pack，几秒钟的事。**有代理就别用 `push_github.py`。**
+
+> 首次推送曾因远端历史是 API 造的链（commit sha 和本地不一致）被拒。确认远端那些提交都是同一个脚本生成的之后，用 `--force-with-lease` 覆盖，历史就统一成本地这条线了。
 
 ---
 
